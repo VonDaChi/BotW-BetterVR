@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  participant T as 双脚 Tracker (SteamVR/PICO)
+  participant RT as OpenXR Runtime (SteamVR)
+  participant UA as OpenXR::UpdateActions()
+  participant IN as m_input (atomic)
+  participant CI as hook_InjectXRInput()
+  participant AN as LegMotionAnalyzer
+  participant VP as VPADStatus
+  participant G as BotW 角色控制器
+
+  Note over T,RT: ALVR PICO4 emulation → tracker 角色 Left/Right Foot
+  RT->>UA: xrSyncActions(gameplay_fps) + xrLocateSpace(footSpaces, m_stageSpace)
+  UA->>UA: locatePose(foot) 复用 lambda（仅参数化 subactionPath）
+  UA->>IN: Shared.footPoseLocation[2] / footPoseVelocity[2] / footPose[2]
+  IN->>CI: load()（含双脚位姿 + 头显位姿 renderer->GetMiddlePose）
+
+  CI->>CI: 死区 applied (controls.cpp ~1090-1096)
+  CI->>AN: Update(footLoc, footVel, footActive, hmdPos, hmdYaw, dt, cfg)
+  AN->>AN: DetectGaitCycle → 支撑/摆动相位、步频、步幅
+  AN->>AN: ComputeMovementVector → yaw 旋转 + EMA + 死区 + 增益
+  AN->>AN: isRun / isCrouch / isJump 状态机 + 冷却 + 滞回
+  AN-->>CI: LegMotionResult{walkVector, isRun, isCrouch, isJump, gait}
+
+  CI->>VP: leftStickSource.currentState += walkVector（死区之后 / processJoystickInput 之前）
+  CI->>VP: newXRBtnHold |= VPAD_BUTTON_X (jump)
+  CI->>VP: newXRBtnHold |= VPAD_BUTTON_B (run)
+  CI->>VP: newXRBtnHold |= VPAD_BUTTON_STICK_L (crouch)
+  CI->>VP: processJoystickInput() 转成 VPAD_STICK_L_EMULATION_*
+  VP->>G: writeMemory → 游戏读取摇杆/按键 → 虚拟角色移动

@@ -1,0 +1,81 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+out/*
+x64/
+
+packages/
+
+OpenXR/Debug/
+
+.vs/
+
+/Cemu/*
+CemuTest/
+!/Cemu/.gitkeep
+
+/MetaXRSimulator/*
+!/MetaXRSimulator/.gitkeep
+!/MetaXRSimulator/config/sim_core_configuration.json
+!/MetaXRSimulator/config/sim_core_configuration_ci.json
+
+/OpenXRSimulator/*
+
+ReverseEngineering/
+
+CMakeSettings.json
+cmake-build-*/
+build/
+
+src/rendering/vc140.pdb
+enc_temp_folder/
+
+BetterVR.zip
+
+compile_commands.json
+
+# 本地构建日志
+*.log
+
+# AI 工作区
+.workbuddy/
+
+# IDE 本地配置
+.idea/
+.vscode/
+
+# CMake 用户预设（含本机绝对路径）
+CMakeUserPresets.json
+
+# 访问令牌（切勿提交）
+classic_access_token.txt

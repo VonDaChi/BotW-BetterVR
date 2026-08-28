@@ -1,0 +1,46 @@
+[Definition]
+titleIds = 00050000101C9300,00050000101C9400,00050000101C9500
+name = Better VR
+path = "The Legend of Zelda: Breath of the Wild/Better VR"
+description = Used to enable BetterVR.||||Most settings will be found inside the in-game menu by long-pressing the inventory button (right thumbstick).||Made by Crementif.
+version = 7
+default = 1
+
+[Default]
+$enableDebugOverlay:int = 0
+
+$accessibilityUIColor:int = 0
+$accessibilityUIColor_x = 0.000
+$accessibilityUIColor_y = 0.804
+$accessibilityUIColor_z = 1.000
+$accessibilityUIColor_w = 1.000
+
+# Accessibility UI Color
+
+[Preset]
+name = Use Default Colors (Default, White)
+category = More Contrasty UI For Crosshair, Buttons etc.
+default = 1
+$accessibilityUIColor:int = 0
+
+[Preset]
+name = Thematic Cyan (Best Looking Preset)
+category = More Contrasty UI For Crosshair, Buttons etc.
+$accessibilityUIColor:int = 1
+$accessibilityUIColor_x = 0.000
+$accessibilityUIColor_y = 0.804
+$accessibilityUIColor_z = 1.000
+$accessibilityUIColor_w = 1.000
+
+[Preset]
+name = Bright Purple (Most Visible Preset)
+category = More Contrasty UI For Crosshair, Buttons etc.
+$accessibilityUIColor:int = 1
+$accessibilityUIColor_x = 0.6728
+$accessibilityUIColor_y = 0.0
+$accessibilityUIColor_z = 0.3272
+$accessibilityUIColor_w = 1.000
+
+# Overwrite FPS++'s FPS limit
+[Control]
+vsyncFrequency = 180

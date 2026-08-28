@@ -1,0 +1,1914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ArrowShootMove Arc Viewer</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --page: #f3efe3;
+            --page-accent: #e7dcc0;
+            --panel: rgba(255, 251, 243, 0.88);
+            --panel-strong: rgba(255, 248, 232, 0.98);
+            --ink: #1c252b;
+            --muted: #5a686f;
+            --grid: rgba(28, 37, 43, 0.08);
+            --line: rgba(28, 37, 43, 0.12);
+            --launch: #1879a7;
+            --flight: #d48d1d;
+            --fall: #cb4b42;
+            --target: #8b2c6a;
+            --observed: #2d7654;
+            --focus: #185c85;
+            --good: #2d7654;
+            --shadow: 0 18px 40px rgba(42, 50, 55, 0.14);
+            --radius: 18px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Segoe UI Variable Display", "Segoe UI", "Trebuchet MS", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(24, 121, 167, 0.12), transparent 34%),
+                radial-gradient(circle at top right, rgba(203, 75, 66, 0.1), transparent 28%),
+                linear-gradient(180deg, var(--page), #f7f3ea 42%, #ece3d2);
+        }
+
+        .page {
+            width: min(1480px, calc(100vw - 32px));
+            margin: 20px auto;
+        }
+
+        .hero {
+            display: grid;
+            gap: 12px;
+            padding: 28px 30px 24px;
+            border-radius: calc(var(--radius) + 4px);
+            background:
+                linear-gradient(140deg, rgba(255, 252, 246, 0.96), rgba(241, 231, 209, 0.9)),
+                linear-gradient(90deg, rgba(24, 121, 167, 0.08), rgba(212, 141, 29, 0.06));
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(28, 37, 43, 0.08);
+        }
+
+        .eyebrow {
+            margin: 0;
+            color: var(--launch);
+            font-size: 0.8rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        h1 {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            font-size: clamp(2rem, 4vw, 3.5rem);
+            line-height: 1.02;
+            letter-spacing: -0.04em;
+        }
+
+        .hero p {
+            margin: 0;
+            max-width: 78ch;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(330px, 410px) minmax(0, 1fr);
+            gap: 18px;
+            margin-top: 18px;
+        }
+
+        .panel {
+            border-radius: var(--radius);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(28, 37, 43, 0.08);
+            backdrop-filter: blur(10px);
+        }
+
+        .controls {
+            padding: 22px 22px 18px;
+            position: sticky;
+            top: 20px;
+            align-self: start;
+        }
+
+        .section-title {
+            margin: 0 0 4px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .section-copy {
+            margin: 0 0 18px;
+            font-size: 0.94rem;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .control-stack {
+            display: grid;
+            gap: 14px;
+        }
+
+        fieldset {
+            margin: 0;
+            padding: 14px 14px 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(28, 37, 43, 0.1);
+            background: var(--panel-strong);
+        }
+
+        legend {
+            padding: 0 6px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--launch);
+        }
+
+        .grid-3,
+        .grid-2 {
+            display: grid;
+            gap: 10px;
+        }
+
+        .grid-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .grid-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        label {
+            display: grid;
+            gap: 4px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            min-width: 0;
+            padding: 10px 11px;
+            border-radius: 10px;
+            border: 1px solid rgba(28, 37, 43, 0.14);
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--ink);
+            font: inherit;
+        }
+
+        input:focus,
+        textarea:focus {
+            outline: 2px solid rgba(24, 92, 133, 0.22);
+            border-color: var(--focus);
+        }
+
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+            font-family: "Cascadia Mono", Consolas, monospace;
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        input[type="checkbox"] {
+            width: auto;
+            min-width: auto;
+            margin: 0;
+            accent-color: var(--focus);
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            color: var(--ink);
+            font-weight: 700;
+        }
+
+        .button-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 4px;
+        }
+
+        button {
+            border: 0;
+            border-radius: 999px;
+            padding: 11px 16px;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+            color: white;
+            background: linear-gradient(135deg, var(--launch), #0f5d88);
+            box-shadow: 0 8px 18px rgba(24, 121, 167, 0.2);
+        }
+
+        button.secondary {
+            color: var(--ink);
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 232, 214, 0.95));
+            border: 1px solid rgba(28, 37, 43, 0.12);
+            box-shadow: none;
+        }
+
+        .callout {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: linear-gradient(180deg, rgba(255, 249, 239, 0.95), rgba(247, 239, 223, 0.95));
+            border: 1px solid rgba(212, 141, 29, 0.18);
+        }
+
+        .callout h3,
+        .notes h3 {
+            margin: 0 0 8px;
+            font-size: 0.92rem;
+            letter-spacing: 0.02em;
+        }
+
+        .callout p,
+        .callout ul,
+        .notes p,
+        .notes ul {
+            margin: 0;
+            color: var(--muted);
+            font-size: 0.88rem;
+            line-height: 1.55;
+        }
+
+        .callout ul,
+        .notes ul {
+            padding-left: 18px;
+            margin-top: 6px;
+        }
+
+        .viewer {
+            padding: 20px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .viewer-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .viewer-copy {
+            margin: 0;
+            max-width: 70ch;
+            color: var(--muted);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .canvas-card {
+            padding: 14px;
+            border-radius: 16px;
+            background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(247, 240, 224, 0.9));
+            border: 1px solid rgba(28, 37, 43, 0.1);
+        }
+
+        .canvas-wrap {
+            width: 100%;
+            min-height: 520px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            min-height: 520px;
+            border-radius: 12px;
+            background:
+                radial-gradient(circle at top left, rgba(24, 121, 167, 0.07), transparent 22%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(249, 242, 228, 0.96));
+            border: 1px solid rgba(28, 37, 43, 0.08);
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px 16px;
+            margin-top: 12px;
+            font-size: 0.86rem;
+            color: var(--muted);
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+            gap: 12px;
+        }
+
+        .summary-card {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: var(--panel-strong);
+            border: 1px solid rgba(28, 37, 43, 0.08);
+        }
+
+        .summary-card span {
+            display: block;
+            color: var(--muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+        }
+
+        .summary-card strong {
+            font-size: 1.2rem;
+            letter-spacing: -0.03em;
+        }
+
+        .summary-card.good strong {
+            color: var(--good);
+        }
+
+        .notes {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .notes article {
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: var(--panel-strong);
+            border: 1px solid rgba(28, 37, 43, 0.08);
+        }
+
+        .table-card {
+            overflow: hidden;
+            border-radius: 16px;
+            border: 1px solid rgba(28, 37, 43, 0.08);
+            background: var(--panel-strong);
+        }
+
+        .table-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(28, 37, 43, 0.08);
+        }
+
+        .table-wrap {
+            max-height: 420px;
+            overflow: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.84rem;
+        }
+
+        th,
+        td {
+            padding: 9px 12px;
+            border-bottom: 1px solid rgba(28, 37, 43, 0.06);
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        th:first-child,
+        td:first-child,
+        th:nth-child(2),
+        td:nth-child(2) {
+            text-align: left;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: rgba(249, 242, 228, 0.98);
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        tbody tr.phase-start {
+            background: rgba(24, 121, 167, 0.06);
+        }
+
+        tbody tr.phase-fall {
+            background: rgba(203, 75, 66, 0.06);
+        }
+
+        tbody tr.is-transition {
+            box-shadow: inset 3px 0 0 var(--fall);
+            font-weight: 700;
+        }
+
+        tbody tr.has-observed {
+            outline: 1px solid rgba(45, 118, 84, 0.18);
+            outline-offset: -1px;
+        }
+
+        code {
+            font-family: "Cascadia Mono", Consolas, monospace;
+            font-size: 0.94em;
+            color: #7a2f56;
+        }
+
+        @media (max-width: 1180px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+
+            .controls {
+                position: static;
+            }
+
+            .summary-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 820px) {
+            .page {
+                width: min(100vw - 16px, 1000px);
+                margin: 8px auto 18px;
+            }
+
+            .hero,
+            .controls,
+            .viewer {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+
+            .grid-3,
+            .grid-2,
+            .notes,
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .canvas-wrap,
+            canvas {
+                min-height: 720px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header class="hero">
+            <p class="eyebrow">Standalone Reverse-Engineered Viewer</p>
+            <h1>ArrowShootMove Arc Viewer</h1>
+            <p>This static page approximates the standard <code>ArrowShootMove</code> bow arc from the Wii U game code. It uses the phase split observed in IDA: a short normalized launch tick, a straight flight phase that integrates speed toward <code>AimSpeed</code>, and a fall phase that swaps in <code>FallAccel</code>, <code>Gravity</code>, and the native <code>FallSpeedRatioByRange</code> formula.</p>
+        </header>
+
+        <div class="layout">
+            <aside class="panel controls">
+                <h2 class="section-title">Raw Game Inputs</h2>
+                <p class="section-copy">These controls stay close to the action parameters and the transient state setup derived from <code>ArrowShootMove::enterSub</code>, <code>m_36_setArrowVelocity</code>, <code>m_39_checkFloat33WhetherAtRange</code>, and <code>updateShotArrowWhenItsAtRange</code>.</p>
+
+                <div class="control-stack">
+                    <fieldset>
+                        <legend>Origin</legend>
+                        <div class="grid-3">
+                            <label>X<input id="originX" name="originX" type="number" step="0.01"></label>
+                            <label>Y<input id="originY" name="originY" type="number" step="0.01"></label>
+                            <label>Z<input id="originZ" name="originZ" type="number" step="0.01"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>TargetPos</legend>
+                        <div class="grid-3">
+                            <label>X<input id="targetX" name="targetX" type="number" step="0.01"></label>
+                            <label>Y<input id="targetY" name="targetY" type="number" step="0.01"></label>
+                            <label>Z<input id="targetZ" name="targetZ" type="number" step="0.01"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Launch Direction</legend>
+                        <label class="toggle-row" for="useExplicitDirection">
+                            <input id="useExplicitDirection" name="useExplicitDirection" type="checkbox">
+                            Use explicit direction instead of <code>normalize(TargetPos - Origin)</code>
+                        </label>
+                        <div class="grid-3">
+                            <label>X<input id="launchDirectionX" name="launchDirectionX" type="number" step="0.001"></label>
+                            <label>Y<input id="launchDirectionY" name="launchDirectionY" type="number" step="0.001"></label>
+                            <label>Z<input id="launchDirectionZ" name="launchDirectionZ" type="number" step="0.001"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Range Check Origin</legend>
+                        <label class="toggle-row" for="useExplicitRangeOrigin">
+                            <input id="useExplicitRangeOrigin" name="useExplicitRangeOrigin" type="checkbox">
+                            Use explicit <code>mtxPos_CC</code> for the <code>AtRange</code> test instead of Launch Origin
+                        </label>
+                        <div class="grid-3">
+                            <label>X<input id="rangeOriginX" name="rangeOriginX" type="number" step="0.001"></label>
+                            <label>Y<input id="rangeOriginY" name="rangeOriginY" type="number" step="0.001"></label>
+                            <label>Z<input id="rangeOriginZ" name="rangeOriginZ" type="number" step="0.001"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>FirstSpeed Vec3</legend>
+                        <div class="grid-3">
+                            <label>X<input id="firstSpeedX" name="firstSpeedX" type="number" step="0.01"></label>
+                            <label>Y<input id="firstSpeedY" name="firstSpeedY" type="number" step="0.01"></label>
+                            <label>Z<input id="firstSpeedZ" name="firstSpeedZ" type="number" step="0.01"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>RelativeVel Vec3</legend>
+                        <div class="grid-3">
+                            <label>X<input id="relativeVelX" name="relativeVelX" type="number" step="0.01"></label>
+                            <label>Y<input id="relativeVelY" name="relativeVelY" type="number" step="0.01"></label>
+                            <label>Z<input id="relativeVelZ" name="relativeVelZ" type="number" step="0.01"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Straight Flight</legend>
+                        <div class="grid-2">
+                            <label>Accel<input id="accel" name="accel" type="number" step="0.01"></label>
+                            <label>AimSpeed<input id="aimSpeed" name="aimSpeed" type="number" step="0.01"></label>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Fall Phase</legend>
+                        <div class="grid-2">
+                            <label>FallAccel<input id="fallAccel" name="fallAccel" type="number" step="0.01"></label>
+                            <label>FallAimSpeed<input id="fallAimSpeed" name="fallAimSpeed" type="number" step="0.01"></label>
+                            <label>Gravity<input id="gravity" name="gravity" type="number" step="0.01"></label>
+                            <label>AtRange<input id="atRange" name="atRange" type="number" step="0.01"></label>
+                            <label>FallSpeedRatioByRange<input id="fallSpeedRatioByRange" name="fallSpeedRatioByRange" type="number" step="0.01"></label>
+                            <label>VfrScale<input id="vfrScale" name="vfrScale" type="number" step="0.01" min="0.01"></label>
+                            <label>MaxFrames<input id="maxFrames" name="maxFrames" type="number" step="1" min="2" max="240"></label>
+                        </div>
+                    </fieldset>
+
+                    <div class="button-row">
+                        <button id="resetDefaults" type="button">Reset Defaults</button>
+                        <button id="copyPreset" class="secondary" type="button">Copy JSON Preset</button>
+                    </div>
+
+                    <fieldset>
+                        <legend>Preset JSON</legend>
+                        <label>Paste a preset copied from the in-game visualizer<textarea id="presetJson" name="presetJson" spellcheck="false"></textarea></label>
+                        <div class="button-row">
+                            <button id="loadPreset" class="secondary" type="button">Load JSON Preset</button>
+                            <button id="clearObservedFlight" class="secondary" type="button">Clear Real Flight</button>
+                        </div>
+                    </fieldset>
+
+                    <div class="callout">
+                        <h3>Not Used For Free-Flight Arc</h3>
+                        <p>This viewer intentionally omits non-kinematic <code>loadParams</code> fields: <code>IsShootByPlayer</code>, <code>AtPoint</code>, <code>AtImpulse</code>, <code>AtImpact</code>, <code>AtAttr</code>, and <code>AtMinDamage</code>. When <code>useExplicitDirection</code> is enabled, <code>FirstSpeed</code> direction only contributes magnitude.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="panel viewer">
+                <div class="viewer-head">
+                    <div>
+                        <h2 class="section-title">Trajectory Views</h2>
+                        <p class="viewer-copy">The canvas shows a side profile and a top-down plan view of the same samples. If the loaded JSON includes <code>observedFlight</code>, the viewer overlays the real arrow path and extends the table with frame-matched world-space deltas.</p>
+                    </div>
+                </div>
+
+                <section class="canvas-card">
+                    <div class="canvas-wrap">
+                        <canvas id="trajectoryCanvas" aria-label="Arrow trajectory viewer"></canvas>
+                    </div>
+                    <div class="legend">
+                        <span class="legend-item"><span class="swatch" style="background: var(--launch);"></span>Launch and first-frame step</span>
+                        <span class="legend-item"><span class="swatch" style="background: var(--flight);"></span>Straight flight</span>
+                        <span class="legend-item"><span class="swatch" style="background: var(--fall);"></span>Fall phase</span>
+                        <span class="legend-item"><span class="swatch" style="background: var(--observed);"></span>Observed real flight</span>
+                        <span class="legend-item"><span class="swatch" style="background: var(--target);"></span>Target marker</span>
+                    </div>
+                </section>
+
+                <section class="summary-grid" aria-live="polite">
+                    <article class="summary-card">
+                        <span>Launch Speed</span>
+                        <strong id="launchSpeedValue">0.00</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Launch Direction</span>
+                        <strong id="launchDirectionValue">0.000, 0.000, 0.000</strong>
+                    </article>
+                    <article class="summary-card good">
+                        <span>Fall Target Speed</span>
+                        <strong id="fallTargetSpeedValue">0.00</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Fall Starts</span>
+                        <strong id="transitionValue">Not reached</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Final Horizontal Range</span>
+                        <strong id="finalRangeValue">0.00</strong>
+                    </article>
+                    <article class="summary-card good">
+                        <span>Observed Samples</span>
+                        <strong id="observedCountValue">0</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Matched Frames</span>
+                        <strong id="matchedCountValue">0</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Mean Delta</span>
+                        <strong id="meanDeltaValue">--</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Max Delta</span>
+                        <strong id="maxDeltaValue">--</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Compare Offset</span>
+                        <strong id="compareOffsetValue">--</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Observed Fall Ratio</span>
+                        <strong id="inferredFallRatioValue">--</strong>
+                    </article>
+                </section>
+
+                <section class="notes">
+                    <article>
+                        <h3>Fall-Phase Formula</h3>
+                        <p><code>fallAimSpeed + ((atRange / 20) - 1) * fallSpeedRatioByRange</code>, clamped to <code>[0, aimSpeed]</code>. If <code>abs(fallAccel)</code> is effectively zero, the sim keeps the current speed and falls back to <code>abs(gravity)</code> only when that speed is near zero.</p>
+                    </article>
+                    <article>
+                        <h3>Range-Check Origin</h3>
+                        <p><code>m_39_checkFloat33WhetherAtRange</code> measures from <code>enterSub</code>'s stored <code>mtxPos_CC</code>, not necessarily from the visible launch origin. Leave the override off to reuse Launch Origin, or enable it when your real trace stays straight one sample longer than the sim.</p>
+                    </article>
+                    <article>
+                        <h3>IDA Source Functions</h3>
+                        <ul>
+                            <li><code>ArrowShootMove::enterSub</code> @ <code>0x020E3D54</code></li>
+                            <li><code>ArrowShootMove::m_32_setVelocity</code> @ <code>0x020E558C</code></li>
+                            <li><code>ArrowShootMove::m_36_setArrowVelocity</code> @ <code>0x020E7134</code></li>
+                            <li><code>ArrowShootMove::m_39_checkFloat33WhetherAtRange</code> @ <code>0x020E76AC</code></li>
+                            <li><code>updateShotArrowWhenItsAtRange</code> @ <code>0x020E5184</code></li>
+                            <li><code>ArrowShootMove::m_33_innerUpdate</code> @ <code>0x020E5284</code></li>
+                            <li><code>updateArrowPositionUsingVelocity</code> @ <code>0x020E402C</code></li>
+                        </ul>
+                    </article>
+                </section>
+
+                <section class="table-card">
+                    <div class="table-head">
+                        <div>
+                            <h2 class="section-title">Sample Table</h2>
+                            <p class="section-copy">Per-frame simulated points after applying the current phase logic and <code>vfrScale</code>. Imported real-flight samples are auto-aligned against the hidden launch tick when that lowers early-flight error.</p>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Frame</th>
+                                    <th>Phase</th>
+                                    <th>Sim X</th>
+                                    <th>Sim Y</th>
+                                    <th>Sim Z</th>
+                                    <th>Sim Horiz</th>
+                                    <th>Sim Step</th>
+                                    <th>Sim Speed</th>
+                                    <th>Real X</th>
+                                    <th>Real Y</th>
+                                    <th>Real Z</th>
+                                    <th>Real Step</th>
+                                    <th>Real Speed</th>
+                                    <th>Delta</th>
+                                </tr>
+                            </thead>
+                            <tbody id="samplesBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const EPSILON = 0.00000011920929;
+            const FIRST_FRAME_STEP = 0.01;
+            const FALL_SPEED_RATIO_RANGE_BASE = 20.0;
+            const IMMEDIATE_FALL_RANGE = 10.0;
+            const MAX_ALLOWED_FRAMES = 240;
+            const EXPORT_SCHEMA_VERSION = "arrow-shoot-move-export-v3";
+            const EXPORT_BUILD_TARGET = "arrow-shoot-move-sim";
+
+            const defaults = {
+                origin: { x: 0.0, y: 0.0, z: 0.0 },
+                targetPos: { x: 26.0, y: 5.5, z: 2.0 },
+                useExplicitDirection: false,
+                launchDirection: { x: 0.977, y: 0.207, z: 0.075 },
+                useExplicitRangeOrigin: false,
+                rangeCheckOrigin: { x: 0.0, y: 0.0, z: 0.0 },
+                firstSpeed: { x: 28.0, y: 0.0, z: 0.0 },
+                relativeVel: { x: 0.0, y: 0.0, z: 0.0 },
+                accel: 0.55,
+                aimSpeed: 32.0,
+                fallAccel: 0.36,
+                fallAimSpeed: 15.5,
+                gravity: -0.22,
+                atRange: 21.0,
+                fallSpeedRatioByRange: 1.1,
+                vfrScale: 1.0,
+                maxFrames: 96
+            };
+
+            const palette = {
+                launch: "#1879a7",
+                flight: "#d48d1d",
+                fall: "#cb4b42",
+                target: "#8b2c6a",
+                observed: "#2d7654",
+                marker: "#1c252b",
+                grid: "rgba(28, 37, 43, 0.08)",
+                axis: "rgba(28, 37, 43, 0.4)",
+                text: "#314048",
+                background: "rgba(255, 255, 255, 0.74)"
+            };
+
+            const fieldIds = [
+                "originX", "originY", "originZ",
+                "targetX", "targetY", "targetZ",
+                "useExplicitDirection", "launchDirectionX", "launchDirectionY", "launchDirectionZ",
+                "useExplicitRangeOrigin", "rangeOriginX", "rangeOriginY", "rangeOriginZ",
+                "firstSpeedX", "firstSpeedY", "firstSpeedZ",
+                "relativeVelX", "relativeVelY", "relativeVelZ",
+                "accel", "aimSpeed", "fallAccel", "fallAimSpeed",
+                "gravity", "atRange", "fallSpeedRatioByRange", "vfrScale", "maxFrames"
+            ];
+
+            const canvas = document.getElementById("trajectoryCanvas");
+            const canvasWrap = document.querySelector(".canvas-wrap");
+            const samplesBody = document.getElementById("samplesBody");
+            const summaryNodes = {
+                launchSpeed: document.getElementById("launchSpeedValue"),
+                launchDirection: document.getElementById("launchDirectionValue"),
+                fallTargetSpeed: document.getElementById("fallTargetSpeedValue"),
+                transition: document.getElementById("transitionValue"),
+                finalRange: document.getElementById("finalRangeValue"),
+                observedCount: document.getElementById("observedCountValue"),
+                matchedCount: document.getElementById("matchedCountValue"),
+                meanDelta: document.getElementById("meanDeltaValue"),
+                maxDelta: document.getElementById("maxDeltaValue"),
+                compareOffset: document.getElementById("compareOffsetValue"),
+                inferredFallRatio: document.getElementById("inferredFallRatioValue")
+            };
+
+            let currentResult = null;
+            let loadedObservedFlight = null;
+
+            function clamp(value, minValue, maxValue) {
+                return Math.min(Math.max(value, minValue), maxValue);
+            }
+
+            function vec3(x, y, z) {
+                return { x: x, y: y, z: z };
+            }
+
+            function addVec3(a, b) {
+                return vec3(a.x + b.x, a.y + b.y, a.z + b.z);
+            }
+
+            function subVec3(a, b) {
+                return vec3(a.x - b.x, a.y - b.y, a.z - b.z);
+            }
+
+            function scaleVec3(vector, scalar) {
+                return vec3(vector.x * scalar, vector.y * scalar, vector.z * scalar);
+            }
+
+            function lengthSq(vector) {
+                return (vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z);
+            }
+
+            function lengthVec3(vector) {
+                return Math.sqrt(lengthSq(vector));
+            }
+
+            function distanceVec3(a, b) {
+                return lengthVec3(subVec3(a, b));
+            }
+
+            function horizontalDistance(point, origin) {
+                const deltaX = point.x - origin.x;
+                const deltaZ = point.z - origin.z;
+                return Math.sqrt((deltaX * deltaX) + (deltaZ * deltaZ));
+            }
+
+            function shouldUseExplicitRangeOrigin(origin, rangeCheckOrigin) {
+                if (!origin || !rangeCheckOrigin) {
+                    return false;
+                }
+
+                if (!Number.isFinite(origin.x) || !Number.isFinite(origin.y) || !Number.isFinite(origin.z)) {
+                    return false;
+                }
+
+                if (!Number.isFinite(rangeCheckOrigin.x) || !Number.isFinite(rangeCheckOrigin.y) || !Number.isFinite(rangeCheckOrigin.z)) {
+                    return false;
+                }
+
+                if (distanceVec3(origin, rangeCheckOrigin) <= 0.001) {
+                    return false;
+                }
+
+                if (lengthSq(rangeCheckOrigin) <= 0.000001 && lengthSq(origin) > 1.0) {
+                    return false;
+                }
+
+                return true;
+            }
+
+            function normalizeOrFallback(vector, fallback) {
+                const magnitudeSq = lengthSq(vector);
+                if (magnitudeSq <= 0.000001 || !Number.isFinite(magnitudeSq)) {
+                    return { x: fallback.x, y: fallback.y, z: fallback.z };
+                }
+
+                const inverseLength = 1.0 / Math.sqrt(magnitudeSq);
+                return vec3(vector.x * inverseLength, vector.y * inverseLength, vector.z * inverseLength);
+            }
+
+            function scaleVectorToLengthOrScaleRaw(vector, targetLength) {
+                const magnitudeSq = lengthSq(vector);
+                if (!Number.isFinite(magnitudeSq) || !Number.isFinite(targetLength)) {
+                    return vec3(0.0, 0.0, 0.0);
+                }
+
+                if (magnitudeSq > 0.000001) {
+                    return scaleVec3(vector, targetLength / Math.sqrt(magnitudeSq));
+                }
+
+                return scaleVec3(vector, targetLength);
+            }
+
+            function formatNumber(value, digits) {
+                return Number.isFinite(value) ? value.toFixed(digits) : "NaN";
+            }
+
+            function formatFrameOffset(frameOffset) {
+                if (!Number.isFinite(frameOffset) || frameOffset === 0) {
+                    return "Direct";
+                }
+
+                return frameOffset > 0
+                    ? ("Observed = Sim - " + frameOffset)
+                    : ("Observed = Sim + " + Math.abs(frameOffset));
+            }
+
+            function medianFinite(values) {
+                const filtered = values.filter(function (value) {
+                    return Number.isFinite(value);
+                }).slice().sort(function (left, right) {
+                    return left - right;
+                });
+                if (filtered.length === 0) {
+                    return null;
+                }
+
+                const midpoint = Math.floor(filtered.length / 2);
+                if ((filtered.length % 2) === 1) {
+                    return filtered[midpoint];
+                }
+
+                return (filtered[midpoint - 1] + filtered[midpoint]) * 0.5;
+            }
+
+            function integrateSpeed(currentSpeed, accel, targetSpeed, vfrScale) {
+                const nextSpeed = currentSpeed + (accel * vfrScale);
+                if (accel < -EPSILON) {
+                    return Math.max(nextSpeed, targetSpeed);
+                }
+
+                if (accel > EPSILON) {
+                    return Math.min(nextSpeed, targetSpeed);
+                }
+
+                return currentSpeed;
+            }
+
+            function computeFallTargetSpeed(inputs, currentSpeed) {
+                let fallTargetSpeed = inputs.fallAimSpeed + (((inputs.atRange / FALL_SPEED_RATIO_RANGE_BASE) - 1.0) * inputs.fallSpeedRatioByRange);
+                fallTargetSpeed = clamp(fallTargetSpeed, 0.0, inputs.aimSpeed);
+
+                if (Math.abs(inputs.fallAccel) <= EPSILON) {
+                    fallTargetSpeed = currentSpeed;
+                    if (Math.abs(fallTargetSpeed) <= EPSILON) {
+                        fallTargetSpeed = Math.abs(inputs.gravity);
+                    }
+                }
+
+                return fallTargetSpeed;
+            }
+
+            function readNumber(id) {
+                const input = document.getElementById(id);
+                const value = Number.parseFloat(input.value);
+                return Number.isFinite(value) ? value : 0.0;
+            }
+
+            function readCheckbox(id) {
+                return Boolean(document.getElementById(id).checked);
+            }
+
+            function coerceNumber(value, fallback) {
+                return Number.isFinite(value) ? value : fallback;
+            }
+
+            function coerceBoolean(value, fallback) {
+                return typeof value === "boolean" ? value : fallback;
+            }
+
+            function readVec3Like(value, fallback) {
+                if (Array.isArray(value) && value.length >= 3) {
+                    return vec3(
+                        coerceNumber(Number(value[0]), fallback.x),
+                        coerceNumber(Number(value[1]), fallback.y),
+                        coerceNumber(Number(value[2]), fallback.z)
+                    );
+                }
+
+                if (value && typeof value === "object") {
+                    return vec3(
+                        coerceNumber(Number(value.x), fallback.x),
+                        coerceNumber(Number(value.y), fallback.y),
+                        coerceNumber(Number(value.z), fallback.z)
+                    );
+                }
+
+                return vec3(fallback.x, fallback.y, fallback.z);
+            }
+
+            function readInputs() {
+                return {
+                    origin: vec3(readNumber("originX"), readNumber("originY"), readNumber("originZ")),
+                    targetPos: vec3(readNumber("targetX"), readNumber("targetY"), readNumber("targetZ")),
+                    useExplicitDirection: readCheckbox("useExplicitDirection"),
+                    launchDirection: vec3(readNumber("launchDirectionX"), readNumber("launchDirectionY"), readNumber("launchDirectionZ")),
+                    useExplicitRangeOrigin: readCheckbox("useExplicitRangeOrigin"),
+                    rangeCheckOrigin: vec3(readNumber("rangeOriginX"), readNumber("rangeOriginY"), readNumber("rangeOriginZ")),
+                    firstSpeed: vec3(readNumber("firstSpeedX"), readNumber("firstSpeedY"), readNumber("firstSpeedZ")),
+                    relativeVel: vec3(readNumber("relativeVelX"), readNumber("relativeVelY"), readNumber("relativeVelZ")),
+                    accel: readNumber("accel"),
+                    aimSpeed: readNumber("aimSpeed"),
+                    fallAccel: readNumber("fallAccel"),
+                    fallAimSpeed: readNumber("fallAimSpeed"),
+                    gravity: readNumber("gravity"),
+                    atRange: readNumber("atRange"),
+                    fallSpeedRatioByRange: readNumber("fallSpeedRatioByRange"),
+                    vfrScale: Math.max(readNumber("vfrScale"), 0.01),
+                    maxFrames: clamp(Math.round(readNumber("maxFrames")), 2, MAX_ALLOWED_FRAMES)
+                };
+            }
+
+            function fillInputs(values) {
+                document.getElementById("originX").value = values.origin.x;
+                document.getElementById("originY").value = values.origin.y;
+                document.getElementById("originZ").value = values.origin.z;
+                document.getElementById("targetX").value = values.targetPos.x;
+                document.getElementById("targetY").value = values.targetPos.y;
+                document.getElementById("targetZ").value = values.targetPos.z;
+                document.getElementById("useExplicitDirection").checked = Boolean(values.useExplicitDirection);
+                document.getElementById("launchDirectionX").value = values.launchDirection.x;
+                document.getElementById("launchDirectionY").value = values.launchDirection.y;
+                document.getElementById("launchDirectionZ").value = values.launchDirection.z;
+                document.getElementById("useExplicitRangeOrigin").checked = Boolean(values.useExplicitRangeOrigin);
+                document.getElementById("rangeOriginX").value = values.rangeCheckOrigin.x;
+                document.getElementById("rangeOriginY").value = values.rangeCheckOrigin.y;
+                document.getElementById("rangeOriginZ").value = values.rangeCheckOrigin.z;
+                document.getElementById("firstSpeedX").value = values.firstSpeed.x;
+                document.getElementById("firstSpeedY").value = values.firstSpeed.y;
+                document.getElementById("firstSpeedZ").value = values.firstSpeed.z;
+                document.getElementById("relativeVelX").value = values.relativeVel.x;
+                document.getElementById("relativeVelY").value = values.relativeVel.y;
+                document.getElementById("relativeVelZ").value = values.relativeVel.z;
+                document.getElementById("accel").value = values.accel;
+                document.getElementById("aimSpeed").value = values.aimSpeed;
+                document.getElementById("fallAccel").value = values.fallAccel;
+                document.getElementById("fallAimSpeed").value = values.fallAimSpeed;
+                document.getElementById("gravity").value = values.gravity;
+                document.getElementById("atRange").value = values.atRange;
+                document.getElementById("fallSpeedRatioByRange").value = values.fallSpeedRatioByRange;
+                document.getElementById("vfrScale").value = values.vfrScale;
+                document.getElementById("maxFrames").value = values.maxFrames;
+            }
+
+            function buildPresetInputs(rawPreset) {
+                const preset = rawPreset && typeof rawPreset === "object" ? rawPreset : {};
+                const origin = readVec3Like(preset.origin, defaults.origin);
+                const launchDirection = readVec3Like(preset.launchDirection, defaults.launchDirection);
+                const hasExplicitDirection = Object.prototype.hasOwnProperty.call(preset, "launchDirection");
+                const useExplicitDirection = coerceBoolean(preset.useExplicitDirection, hasExplicitDirection || defaults.useExplicitDirection);
+                const rangeCheckOrigin = readVec3Like(preset.rangeCheckOrigin, origin);
+                const hasExplicitRangeOrigin = Object.prototype.hasOwnProperty.call(preset, "rangeCheckOrigin");
+                const wantsExplicitRangeOrigin = coerceBoolean(preset.useExplicitRangeOrigin, hasExplicitRangeOrigin || defaults.useExplicitRangeOrigin);
+                const useExplicitRangeOrigin = wantsExplicitRangeOrigin && shouldUseExplicitRangeOrigin(origin, rangeCheckOrigin);
+
+                let targetPos = readVec3Like(preset.targetPos, defaults.targetPos);
+                if (!Object.prototype.hasOwnProperty.call(preset, "targetPos") && hasExplicitDirection) {
+                    const normalizedDirection = normalizeOrFallback(launchDirection, defaults.launchDirection);
+                    targetPos = addVec3(origin, scaleVec3(normalizedDirection, 100.0));
+                }
+
+                return {
+                    origin: origin,
+                    targetPos: targetPos,
+                    useExplicitDirection: useExplicitDirection,
+                    launchDirection: launchDirection,
+                    useExplicitRangeOrigin: useExplicitRangeOrigin,
+                    rangeCheckOrigin: useExplicitRangeOrigin ? rangeCheckOrigin : origin,
+                    firstSpeed: readVec3Like(preset.firstSpeed, defaults.firstSpeed),
+                    relativeVel: readVec3Like(preset.relativeVel, defaults.relativeVel),
+                    accel: coerceNumber(Number(preset.accel), defaults.accel),
+                    aimSpeed: coerceNumber(Number(preset.aimSpeed), defaults.aimSpeed),
+                    fallAccel: coerceNumber(Number(preset.fallAccel), defaults.fallAccel),
+                    fallAimSpeed: coerceNumber(Number(preset.fallAimSpeed), defaults.fallAimSpeed),
+                    gravity: coerceNumber(Number(preset.gravity), defaults.gravity),
+                    atRange: coerceNumber(Number(preset.atRange), defaults.atRange),
+                    fallSpeedRatioByRange: coerceNumber(Number(preset.fallSpeedRatioByRange), defaults.fallSpeedRatioByRange),
+                    vfrScale: Math.max(coerceNumber(Number(preset.vfrScale), defaults.vfrScale), 0.01),
+                    maxFrames: clamp(Math.round(coerceNumber(Number(preset.maxFrames), defaults.maxFrames)), 2, MAX_ALLOWED_FRAMES)
+                };
+            }
+
+            function readOptionalVec3Like(value) {
+                if (!value || typeof value !== "object") {
+                    return null;
+                }
+
+                const x = Number(value.x);
+                const y = Number(value.y);
+                const z = Number(value.z);
+                if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+                    return null;
+                }
+
+                return vec3(x, y, z);
+            }
+
+            function normalizeObservedFlight(rawObservedFlight, launchOrigin) {
+                if (!rawObservedFlight || typeof rawObservedFlight !== "object" || !Array.isArray(rawObservedFlight.samples)) {
+                    return null;
+                }
+
+                const safeOrigin = readOptionalVec3Like(launchOrigin) || defaults.origin;
+                const normalizedSamples = [];
+
+                rawObservedFlight.samples.forEach(function (sample, index) {
+                    if (!sample || typeof sample !== "object") {
+                        return;
+                    }
+
+                    const position = readOptionalVec3Like(sample.position);
+                    if (!position) {
+                        return;
+                    }
+
+                    const velocity = readOptionalVec3Like(sample.velocity) || vec3(0.0, 0.0, 0.0);
+                    const frame = Math.max(0, Math.round(coerceNumber(Number(sample.frame), index)));
+                    const fallbackStep = normalizedSamples.length > 0 ? distanceVec3(position, normalizedSamples[normalizedSamples.length - 1].position) : 0.0;
+                    const fallbackHorizontalDistance = horizontalDistance(position, safeOrigin);
+
+                    normalizedSamples.push({
+                        frame: frame,
+                        synthetic: coerceBoolean(sample.synthetic, false),
+                        position: position,
+                        velocity: velocity,
+                        stepLength: coerceNumber(Number(sample.stepLength), fallbackStep),
+                        speed: coerceNumber(Number(sample.speed), lengthVec3(velocity)),
+                        horizontalDistance: coerceNumber(Number(sample.horizontalDistance), fallbackHorizontalDistance)
+                    });
+                });
+
+                normalizedSamples.sort(function (left, right) {
+                    return left.frame - right.frame;
+                });
+
+                if (normalizedSamples.length === 0) {
+                    return null;
+                }
+
+                return {
+                    sequenceId: coerceNumber(Number(rawObservedFlight.sequenceId), 0),
+                    actionKind: typeof rawObservedFlight.actionKind === "string" ? rawObservedFlight.actionKind : "unknown",
+                    active: coerceBoolean(rawObservedFlight.active, false),
+                    attached: coerceBoolean(rawObservedFlight.attached, false),
+                    shotOverrideApplied: coerceBoolean(rawObservedFlight.shotOverrideApplied, false),
+                    actorPtr: typeof rawObservedFlight.actorPtr === "string" ? rawObservedFlight.actorPtr : "",
+                    actorName: typeof rawObservedFlight.actorName === "string" ? rawObservedFlight.actorName : "",
+                    sampleCount: normalizedSamples.length,
+                    samples: normalizedSamples
+                };
+            }
+
+            function serializeObservedFlight(observedFlight) {
+                if (!observedFlight || !Array.isArray(observedFlight.samples) || observedFlight.samples.length === 0) {
+                    return null;
+                }
+
+                return {
+                    sequenceId: observedFlight.sequenceId,
+                    actionKind: observedFlight.actionKind,
+                    active: Boolean(observedFlight.active),
+                    attached: Boolean(observedFlight.attached),
+                    shotOverrideApplied: Boolean(observedFlight.shotOverrideApplied),
+                    actorPtr: observedFlight.actorPtr,
+                    actorName: observedFlight.actorName,
+                    sampleCount: observedFlight.samples.length,
+                    samples: observedFlight.samples.map(function (sample) {
+                        return {
+                            frame: sample.frame,
+                            synthetic: Boolean(sample.synthetic),
+                            position: vec3(sample.position.x, sample.position.y, sample.position.z),
+                            velocity: vec3(sample.velocity.x, sample.velocity.y, sample.velocity.z),
+                            stepLength: sample.stepLength,
+                            speed: sample.speed,
+                            horizontalDistance: sample.horizontalDistance
+                        };
+                    })
+                };
+            }
+
+            function chooseObservedFrameOffset(result, observedByFrame) {
+                const candidates = [0, 1, -1, 2, -2];
+                const earlyFrameLimit = result.firstFallFrame >= 0 ? Math.max(4, result.firstFallFrame + 1) : 12;
+                let bestOffset = 0;
+                let bestScore = Number.POSITIVE_INFINITY;
+                let bestMatches = 0;
+
+                candidates.forEach(function (frameOffset) {
+                    let matchedCount = 0;
+                    let totalDelta = 0.0;
+
+                    result.samples.forEach(function (sample) {
+                        if (sample.frame === 0 || sample.phase === "fall" || sample.frame > earlyFrameLimit) {
+                            return;
+                        }
+
+                        const observed = observedByFrame.get(sample.frame - frameOffset);
+                        if (!observed) {
+                            return;
+                        }
+
+                        matchedCount += 1;
+                        totalDelta += distanceVec3(sample.position, observed.position);
+                    });
+
+                    if (matchedCount < 3) {
+                        return;
+                    }
+
+                    const score = totalDelta / matchedCount;
+                    if (score < bestScore - 0.0001 || (Math.abs(score - bestScore) <= 0.0001 && matchedCount > bestMatches)) {
+                        bestOffset = frameOffset;
+                        bestScore = score;
+                        bestMatches = matchedCount;
+                    }
+                });
+
+                return bestMatches >= 3 ? bestOffset : 0;
+            }
+
+            function inferObservedComparisonHints(result, observedByFrame, frameOffset) {
+                const hints = {
+                    inferredFallWorldStep: null,
+                    inferredFallTargetSpeed: null,
+                    inferredFallSpeedRatioByRange: null
+                };
+                if (result.firstFallFrame < 0 || !Number.isFinite(result.inputs.vfrScale) || result.inputs.vfrScale <= EPSILON) {
+                    return hints;
+                }
+
+                const straightSteps = [];
+                result.samples.forEach(function (sample) {
+                    if (sample.phase !== "middle" || sample.frame < 2 || sample.frame >= result.firstFallFrame) {
+                        return;
+                    }
+
+                    const observed = observedByFrame.get(sample.frame - frameOffset);
+                    if (observed && Number.isFinite(observed.stepLength)) {
+                        straightSteps.push(observed.stepLength);
+                    }
+                });
+
+                const observedFallSteps = [];
+                for (let frameDelta = 1; frameDelta <= 6; frameDelta += 1) {
+                    const observed = observedByFrame.get((result.firstFallFrame - frameOffset) + frameDelta);
+                    if (observed && Number.isFinite(observed.stepLength)) {
+                        observedFallSteps.push(observed.stepLength);
+                    }
+                }
+
+                const observedStraightStep = medianFinite(straightSteps);
+                const observedFallStep = medianFinite(observedFallSteps);
+                if (observedFallStep === null) {
+                    return hints;
+                }
+
+                if (observedStraightStep !== null && observedFallStep >= observedStraightStep) {
+                    return hints;
+                }
+
+                hints.inferredFallWorldStep = observedFallStep;
+                hints.inferredFallTargetSpeed = observedFallStep / result.inputs.vfrScale;
+
+                const denominator = (result.inputs.atRange / FALL_SPEED_RATIO_RANGE_BASE) - 1.0;
+                if (Math.abs(denominator) > 0.000001) {
+                    hints.inferredFallSpeedRatioByRange = (hints.inferredFallTargetSpeed - result.inputs.fallAimSpeed) / denominator;
+                }
+
+                return hints;
+            }
+
+            function buildObservedComparison(result, observedFlight) {
+                if (!observedFlight || !Array.isArray(observedFlight.samples) || observedFlight.samples.length === 0) {
+                    return null;
+                }
+
+                const observedByFrame = new Map();
+                observedFlight.samples.forEach(function (sample) {
+                    observedByFrame.set(sample.frame, sample);
+                });
+                const frameOffset = chooseObservedFrameOffset(result, observedByFrame);
+
+                let matchedCount = 0;
+                let totalDelta = 0.0;
+                let maxDelta = 0.0;
+                const rows = result.samples.map(function (sample) {
+                    const observed = observedByFrame.get(sample.frame - frameOffset) || null;
+                    let delta = null;
+                    if (observed) {
+                        delta = distanceVec3(sample.position, observed.position);
+                        matchedCount += 1;
+                        totalDelta += delta;
+                        maxDelta = Math.max(maxDelta, delta);
+                    }
+
+                    return {
+                        simulated: sample,
+                        observed: observed,
+                        delta: delta
+                    };
+                });
+
+                return {
+                    trace: observedFlight,
+                    observedSamples: observedFlight.samples,
+                    observedByFrame: observedByFrame,
+                    frameOffset: frameOffset,
+                    hints: inferObservedComparisonHints(result, observedByFrame, frameOffset),
+                    rows: rows,
+                    observedCount: observedFlight.samples.length,
+                    matchedCount: matchedCount,
+                    meanDelta: matchedCount > 0 ? (totalDelta / matchedCount) : null,
+                    maxDelta: matchedCount > 0 ? maxDelta : null
+                };
+            }
+
+            function simulateArrowShootMove(inputs) {
+                const implicitDirection = normalizeOrFallback(subVec3(inputs.targetPos, inputs.origin), vec3(0.0, 0.0, 1.0));
+                const launchDirection = inputs.useExplicitDirection
+                    ? normalizeOrFallback(inputs.launchDirection, implicitDirection)
+                    : implicitDirection;
+                const rangeCheckOrigin = inputs.useExplicitRangeOrigin
+                    ? vec3(inputs.rangeCheckOrigin.x, inputs.rangeCheckOrigin.y, inputs.rangeCheckOrigin.z)
+                    : vec3(inputs.origin.x, inputs.origin.y, inputs.origin.z);
+                const launchSpeed = lengthVec3(inputs.firstSpeed);
+                const hasRelativeVelocity = lengthSq(inputs.relativeVel) > 0.000001;
+                const samples = [];
+                const state = {
+                    phase: "start",
+                    position: vec3(inputs.origin.x, inputs.origin.y, inputs.origin.z),
+                    currentSpeed: launchSpeed,
+                    currentAccel: inputs.accel,
+                    targetSpeed: inputs.aimSpeed,
+                    direction: vec3(launchDirection.x, launchDirection.y, launchDirection.z),
+                    currentVelocity: vec3(0.0, 0.0, 0.0),
+                    gravityBias: vec3(0.0, 0.0, 0.0)
+                };
+
+                let firstFallIndex = -1;
+                let firstFallFrame = -1;
+                let fallTargetSpeed = computeFallTargetSpeed(inputs, launchSpeed);
+
+                samples.push({
+                    frame: 0,
+                    phase: "origin",
+                    position: vec3(state.position.x, state.position.y, state.position.z),
+                    speed: state.currentSpeed,
+                    stepLength: 0.0,
+                    horizontalDistance: 0.0
+                });
+
+                for (let frame = 1; frame <= inputs.maxFrames; frame += 1) {
+                    if (state.phase === "start") {
+                        state.currentSpeed = integrateSpeed(state.currentSpeed, state.currentAccel, state.targetSpeed, inputs.vfrScale);
+                        const baseVelocity = scaleVec3(state.direction, state.currentSpeed);
+                        const combinedVelocity = hasRelativeVelocity ? addVec3(baseVelocity, inputs.relativeVel) : baseVelocity;
+                        state.currentVelocity = scaleVectorToLengthOrScaleRaw(combinedVelocity, FIRST_FRAME_STEP);
+                        const worldStep = scaleVec3(state.currentVelocity, inputs.vfrScale);
+                        state.position = addVec3(state.position, worldStep);
+                        samples.push({
+                            frame: frame,
+                            phase: "start",
+                            position: vec3(state.position.x, state.position.y, state.position.z),
+                            speed: state.currentSpeed,
+                            stepLength: lengthVec3(worldStep),
+                            horizontalDistance: horizontalDistance(state.position, inputs.origin)
+                        });
+                        state.phase = "middle";
+                        continue;
+                    }
+
+                    if (state.phase === "middle") {
+                        const distanceFromOrigin = distanceVec3(state.position, rangeCheckOrigin);
+                        const enterFallNextFrame = inputs.atRange <= IMMEDIATE_FALL_RANGE || distanceFromOrigin >= inputs.atRange;
+                        state.currentSpeed = integrateSpeed(state.currentSpeed, state.currentAccel, state.targetSpeed, inputs.vfrScale);
+                        const baseVelocity = scaleVec3(state.direction, state.currentSpeed);
+                        state.currentVelocity = hasRelativeVelocity ? addVec3(baseVelocity, inputs.relativeVel) : baseVelocity;
+                        const worldStep = scaleVec3(state.currentVelocity, inputs.vfrScale);
+                        state.position = addVec3(state.position, worldStep);
+                        samples.push({
+                            frame: frame,
+                            phase: "middle",
+                            position: vec3(state.position.x, state.position.y, state.position.z),
+                            speed: state.currentSpeed,
+                            stepLength: lengthVec3(worldStep),
+                            horizontalDistance: horizontalDistance(state.position, inputs.origin)
+                        });
+                        if (enterFallNextFrame) {
+                            state.phase = "fall";
+                            state.currentAccel = Math.abs(inputs.fallAccel);
+                            fallTargetSpeed = computeFallTargetSpeed(inputs, state.currentSpeed);
+                            state.targetSpeed = fallTargetSpeed;
+                            state.gravityBias = vec3(0.0, inputs.gravity, 0.0);
+                            firstFallIndex = samples.length;
+                            firstFallFrame = frame + 1;
+                        }
+                        continue;
+                    }
+
+                    state.currentSpeed = integrateSpeed(state.currentSpeed, state.currentAccel, state.targetSpeed, inputs.vfrScale);
+                    let localVelocity = state.currentVelocity;
+                    if (hasRelativeVelocity) {
+                        localVelocity = subVec3(localVelocity, inputs.relativeVel);
+                    }
+                    const scaledLocalVelocity = scaleVectorToLengthOrScaleRaw(localVelocity, state.currentSpeed);
+                    const combinedVelocity = addVec3(scaledLocalVelocity, state.gravityBias);
+                    state.currentVelocity = hasRelativeVelocity ? addVec3(combinedVelocity, inputs.relativeVel) : combinedVelocity;
+                    const worldStep = scaleVec3(state.currentVelocity, inputs.vfrScale);
+                    state.position = addVec3(state.position, worldStep);
+                    samples.push({
+                        frame: frame,
+                        phase: "fall",
+                        position: vec3(state.position.x, state.position.y, state.position.z),
+                        speed: state.currentSpeed,
+                        stepLength: lengthVec3(worldStep),
+                        horizontalDistance: horizontalDistance(state.position, inputs.origin)
+                    });
+                }
+
+                return {
+                    inputs: inputs,
+                    launchSpeed: launchSpeed,
+                    launchDirection: launchDirection,
+                    fallTargetSpeed: fallTargetSpeed,
+                    firstFallIndex: firstFallIndex,
+                    firstFallFrame: firstFallFrame,
+                    samples: samples
+                };
+            }
+
+            function resizeCanvas() {
+                const ratio = window.devicePixelRatio || 1;
+                const bounds = canvas.getBoundingClientRect();
+                const width = Math.max(1, Math.round(bounds.width * ratio));
+                const height = Math.max(1, Math.round(bounds.height * ratio));
+
+                if (canvas.width !== width || canvas.height !== height) {
+                    canvas.width = width;
+                    canvas.height = height;
+                }
+
+                return {
+                    context: canvas.getContext("2d"),
+                    width: bounds.width,
+                    height: bounds.height,
+                    ratio: ratio
+                };
+            }
+
+            function computeBounds(valuesX, valuesY, fallbackX, fallbackY) {
+                let minX = Number.POSITIVE_INFINITY;
+                let maxX = Number.NEGATIVE_INFINITY;
+                let minY = Number.POSITIVE_INFINITY;
+                let maxY = Number.NEGATIVE_INFINITY;
+
+                for (let index = 0; index < valuesX.length; index += 1) {
+                    minX = Math.min(minX, valuesX[index]);
+                    maxX = Math.max(maxX, valuesX[index]);
+                    minY = Math.min(minY, valuesY[index]);
+                    maxY = Math.max(maxY, valuesY[index]);
+                }
+
+                if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
+                    minX = fallbackX - 1.0;
+                    maxX = fallbackX + 1.0;
+                }
+
+                if (!Number.isFinite(minY) || !Number.isFinite(maxY)) {
+                    minY = fallbackY - 1.0;
+                    maxY = fallbackY + 1.0;
+                }
+
+                if (Math.abs(maxX - minX) < 0.01) {
+                    maxX += 1.0;
+                    minX -= 1.0;
+                }
+
+                if (Math.abs(maxY - minY) < 0.01) {
+                    maxY += 1.0;
+                    minY -= 1.0;
+                }
+
+                const paddingX = Math.max((maxX - minX) * 0.12, 0.5);
+                const paddingY = Math.max((maxY - minY) * 0.14, 0.5);
+
+                return {
+                    minX: minX - paddingX,
+                    maxX: maxX + paddingX,
+                    minY: minY - paddingY,
+                    maxY: maxY + paddingY
+                };
+            }
+
+            function mapToPanel(valueX, valueY, bounds, panel) {
+                const spanX = bounds.maxX - bounds.minX;
+                const spanY = bounds.maxY - bounds.minY;
+                const x = panel.x + (((valueX - bounds.minX) / spanX) * panel.width);
+                const y = panel.y + panel.height - (((valueY - bounds.minY) / spanY) * panel.height);
+                return { x: x, y: y };
+            }
+
+            function strokeSegments(ctx, points, project, result) {
+                for (let index = 1; index < points.length; index += 1) {
+                    const previous = points[index - 1];
+                    const current = points[index];
+                    let stroke = palette.flight;
+
+                    if (current.phase === "start") {
+                        stroke = palette.launch;
+                    } else if (current.phase === "fall") {
+                        stroke = palette.fall;
+                    }
+
+                    const a = project(previous);
+                    const b = project(current);
+                    ctx.strokeStyle = stroke;
+                    ctx.lineWidth = current.phase === "start" ? 3.5 : 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                }
+            }
+
+            function strokeObservedSegments(ctx, points, project) {
+                if (!Array.isArray(points) || points.length === 0) {
+                    return;
+                }
+
+                ctx.save();
+                ctx.strokeStyle = palette.observed;
+                ctx.lineWidth = 2.25;
+                ctx.setLineDash([9, 6]);
+
+                if (points.length >= 2) {
+                    for (let index = 1; index < points.length; index += 1) {
+                        const previous = project(points[index - 1]);
+                        const current = project(points[index]);
+                        ctx.beginPath();
+                        ctx.moveTo(previous.x, previous.y);
+                        ctx.lineTo(current.x, current.y);
+                        ctx.stroke();
+                    }
+                }
+
+                ctx.setLineDash([]);
+                ctx.fillStyle = palette.observed;
+                points.forEach(function (sample, index) {
+                    if (index !== 0 && index !== points.length - 1 && (index % 3) !== 0) {
+                        return;
+                    }
+
+                    const point = project(sample);
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, sample.synthetic ? 3.0 : 3.8, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                ctx.restore();
+            }
+
+            function drawGrid(ctx, panel, title) {
+                ctx.save();
+                ctx.fillStyle = palette.background;
+                ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+
+                ctx.strokeStyle = palette.grid;
+                ctx.lineWidth = 1;
+
+                for (let step = 1; step < 6; step += 1) {
+                    const x = panel.x + ((panel.width / 6) * step);
+                    const y = panel.y + ((panel.height / 6) * step);
+
+                    ctx.beginPath();
+                    ctx.moveTo(x, panel.y);
+                    ctx.lineTo(x, panel.y + panel.height);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.moveTo(panel.x, y);
+                    ctx.lineTo(panel.x + panel.width, y);
+                    ctx.stroke();
+                }
+
+                ctx.strokeStyle = palette.axis;
+                ctx.lineWidth = 1.2;
+                ctx.strokeRect(panel.x, panel.y, panel.width, panel.height);
+
+                ctx.fillStyle = palette.text;
+                ctx.font = "700 14px Segoe UI";
+                ctx.fillText(title, panel.x + 12, panel.y + 22);
+                ctx.restore();
+            }
+
+            function drawMarker(ctx, point, color, label) {
+                ctx.save();
+                ctx.fillStyle = color;
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 5.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                ctx.font = "600 12px Segoe UI";
+                ctx.fillStyle = palette.text;
+                ctx.fillText(label, point.x + 8, point.y - 8);
+                ctx.restore();
+            }
+
+            function drawTargetGuide(ctx, panel, mappedTarget, label) {
+                ctx.save();
+                ctx.strokeStyle = palette.target;
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([7, 7]);
+                ctx.beginPath();
+                ctx.moveTo(mappedTarget.x, panel.y);
+                ctx.lineTo(mappedTarget.x, panel.y + panel.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(panel.x, mappedTarget.y);
+                ctx.lineTo(panel.x + panel.width, mappedTarget.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = palette.target;
+                ctx.font = "700 12px Segoe UI";
+                ctx.fillText(label, mappedTarget.x + 8, mappedTarget.y + 18);
+                ctx.restore();
+            }
+
+            function renderCanvas(result) {
+                const resized = resizeCanvas();
+                const ctx = resized.context;
+                const ratio = resized.ratio;
+                const width = resized.width;
+                const height = resized.height;
+                const isStacked = width < 760;
+                const outerPadding = 16;
+                const gap = 16;
+                const panelWidth = isStacked ? (width - (outerPadding * 2)) : ((width - (outerPadding * 2) - gap) / 2);
+                const panelHeight = isStacked ? ((height - (outerPadding * 2) - gap) / 2) : (height - (outerPadding * 2));
+                const sidePanel = {
+                    x: outerPadding,
+                    y: outerPadding,
+                    width: panelWidth,
+                    height: panelHeight
+                };
+                const topPanel = {
+                    x: isStacked ? outerPadding : (outerPadding + panelWidth + gap),
+                    y: isStacked ? (outerPadding + panelHeight + gap) : outerPadding,
+                    width: panelWidth,
+                    height: panelHeight
+                };
+
+                ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+                ctx.clearRect(0, 0, width, height);
+
+                const sideDistances = result.samples.map(function (sample) {
+                    return sample.horizontalDistance;
+                });
+                const sideHeights = result.samples.map(function (sample) {
+                    return sample.position.y;
+                });
+                sideDistances.push(horizontalDistance(result.inputs.targetPos, result.inputs.origin));
+                sideHeights.push(result.inputs.targetPos.y);
+                if (result.comparison) {
+                    result.comparison.observedSamples.forEach(function (sample) {
+                        sideDistances.push(sample.horizontalDistance);
+                        sideHeights.push(sample.position.y);
+                    });
+                }
+
+                const topXs = result.samples.map(function (sample) {
+                    return sample.position.x - result.inputs.origin.x;
+                });
+                const topZs = result.samples.map(function (sample) {
+                    return sample.position.z - result.inputs.origin.z;
+                });
+                topXs.push(result.inputs.targetPos.x - result.inputs.origin.x);
+                topZs.push(result.inputs.targetPos.z - result.inputs.origin.z);
+                if (result.comparison) {
+                    result.comparison.observedSamples.forEach(function (sample) {
+                        topXs.push(sample.position.x - result.inputs.origin.x);
+                        topZs.push(sample.position.z - result.inputs.origin.z);
+                    });
+                }
+
+                const sideBounds = computeBounds(sideDistances, sideHeights, 0.0, 0.0);
+                const topBounds = computeBounds(topXs, topZs, 0.0, 0.0);
+
+                drawGrid(ctx, sidePanel, "Side profile: horizontal distance vs height");
+                drawGrid(ctx, topPanel, "Top-down: world X vs Z");
+
+                const projectSide = function (sample) {
+                    return mapToPanel(sample.horizontalDistance, sample.position.y, sideBounds, sidePanel);
+                };
+
+                const projectTop = function (sample) {
+                    return mapToPanel(sample.position.x - result.inputs.origin.x, sample.position.z - result.inputs.origin.z, topBounds, topPanel);
+                };
+
+                strokeSegments(ctx, result.samples, projectSide, result);
+                strokeSegments(ctx, result.samples, projectTop, result);
+                if (result.comparison) {
+                    strokeObservedSegments(ctx, result.comparison.observedSamples, projectSide);
+                    strokeObservedSegments(ctx, result.comparison.observedSamples, projectTop);
+                }
+
+                const targetSidePoint = mapToPanel(horizontalDistance(result.inputs.targetPos, result.inputs.origin), result.inputs.targetPos.y, sideBounds, sidePanel);
+                const targetTopPoint = mapToPanel(result.inputs.targetPos.x - result.inputs.origin.x, result.inputs.targetPos.z - result.inputs.origin.z, topBounds, topPanel);
+                drawTargetGuide(ctx, sidePanel, targetSidePoint, "TargetPos");
+                drawTargetGuide(ctx, topPanel, targetTopPoint, "TargetPos");
+
+                const launchPointSide = projectSide(result.samples[0]);
+                const launchPointTop = projectTop(result.samples[0]);
+                const firstStepIndex = result.samples.length > 1 ? 1 : 0;
+                const firstStepPointSide = projectSide(result.samples[firstStepIndex]);
+                const firstStepPointTop = projectTop(result.samples[firstStepIndex]);
+                const finalPointSide = projectSide(result.samples[result.samples.length - 1]);
+                const finalPointTop = projectTop(result.samples[result.samples.length - 1]);
+
+                drawMarker(ctx, launchPointSide, palette.marker, "Launch");
+                drawMarker(ctx, launchPointTop, palette.marker, "Launch");
+                drawMarker(ctx, firstStepPointSide, palette.launch, "0.01 step");
+                drawMarker(ctx, firstStepPointTop, palette.launch, "0.01 step");
+
+                if (result.firstFallIndex >= 0 && result.firstFallIndex < result.samples.length) {
+                    drawMarker(ctx, projectSide(result.samples[result.firstFallIndex]), palette.fall, "Fall starts");
+                    drawMarker(ctx, projectTop(result.samples[result.firstFallIndex]), palette.fall, "Fall starts");
+                }
+
+                drawMarker(ctx, finalPointSide, palette.flight, "Predicted");
+                drawMarker(ctx, finalPointTop, palette.flight, "Predicted");
+
+                if (result.comparison && result.comparison.observedSamples.length > 0) {
+                    const observedFinal = result.comparison.observedSamples[result.comparison.observedSamples.length - 1];
+                    drawMarker(ctx, projectSide(observedFinal), palette.observed, "Observed");
+                    drawMarker(ctx, projectTop(observedFinal), palette.observed, "Observed");
+                }
+            }
+
+            function renderSummary(result) {
+                const finalSample = result.samples[result.samples.length - 1];
+                summaryNodes.launchSpeed.textContent = formatNumber(result.launchSpeed, 3);
+                summaryNodes.launchDirection.textContent = result.launchDirection.x.toFixed(3) + ", " + result.launchDirection.y.toFixed(3) + ", " + result.launchDirection.z.toFixed(3);
+                summaryNodes.fallTargetSpeed.textContent = formatNumber(result.fallTargetSpeed, 3);
+                summaryNodes.transition.textContent = result.firstFallFrame >= 0 ? ("Frame " + result.firstFallFrame + " (sample " + result.firstFallIndex + ")") : "Not reached";
+                summaryNodes.finalRange.textContent = formatNumber(finalSample.horizontalDistance, 3);
+                summaryNodes.observedCount.textContent = result.comparison ? String(result.comparison.observedCount) : "0";
+                summaryNodes.matchedCount.textContent = result.comparison ? String(result.comparison.matchedCount) : "0";
+                summaryNodes.meanDelta.textContent = result.comparison && result.comparison.meanDelta !== null ? formatNumber(result.comparison.meanDelta, 3) : "--";
+                summaryNodes.maxDelta.textContent = result.comparison && result.comparison.maxDelta !== null ? formatNumber(result.comparison.maxDelta, 3) : "--";
+                summaryNodes.compareOffset.textContent = result.comparison
+                    ? formatFrameOffset(result.comparison.frameOffset)
+                    : "--";
+                summaryNodes.inferredFallRatio.textContent = result.comparison && result.comparison.hints && result.comparison.hints.inferredFallSpeedRatioByRange !== null
+                    ? ("~" + formatNumber(result.comparison.hints.inferredFallSpeedRatioByRange, 3))
+                    : "--";
+            }
+
+            function renderTable(result) {
+                samplesBody.innerHTML = "";
+
+                for (let index = 0; index < result.samples.length; index += 1) {
+                    const sample = result.samples[index];
+                    const comparisonRow = result.comparison ? result.comparison.rows[index] : null;
+                    const observed = comparisonRow ? comparisonRow.observed : null;
+                    const row = document.createElement("tr");
+                    row.className = "phase-" + sample.phase;
+                    if (index === result.firstFallIndex) {
+                        row.className += " is-transition";
+                    }
+                    if (observed) {
+                        row.className += " has-observed";
+                    }
+
+                    const phaseLabel = sample.phase === "origin"
+                        ? "origin"
+                        : (sample.phase === "start" ? "launch" : sample.phase);
+
+                    row.innerHTML =
+                        "<td>" + sample.frame + "</td>" +
+                        "<td>" + phaseLabel + "</td>" +
+                        "<td>" + formatNumber(sample.position.x, 3) + "</td>" +
+                        "<td>" + formatNumber(sample.position.y, 3) + "</td>" +
+                        "<td>" + formatNumber(sample.position.z, 3) + "</td>" +
+                        "<td>" + formatNumber(sample.horizontalDistance, 3) + "</td>" +
+                        "<td>" + formatNumber(sample.stepLength, 3) + "</td>" +
+                        "<td>" + formatNumber(sample.speed, 3) + "</td>" +
+                        "<td>" + (observed ? formatNumber(observed.position.x, 3) : "--") + "</td>" +
+                        "<td>" + (observed ? formatNumber(observed.position.y, 3) : "--") + "</td>" +
+                        "<td>" + (observed ? formatNumber(observed.position.z, 3) : "--") + "</td>" +
+                        "<td>" + (observed ? formatNumber(observed.stepLength, 3) : "--") + "</td>" +
+                        "<td>" + (observed ? formatNumber(observed.speed, 3) : "--") + "</td>" +
+                        "<td>" + (comparisonRow && comparisonRow.delta !== null ? formatNumber(comparisonRow.delta, 3) : "--") + "</td>";
+                    samplesBody.appendChild(row);
+                }
+            }
+
+            function renderAll() {
+                currentResult = simulateArrowShootMove(readInputs());
+                currentResult.comparison = buildObservedComparison(currentResult, loadedObservedFlight);
+                renderSummary(currentResult);
+                renderTable(currentResult);
+                renderCanvas(currentResult);
+            }
+
+            function flashButtonState(buttonId, message) {
+                const button = document.getElementById(buttonId);
+                const original = button.textContent;
+                button.textContent = message;
+                window.setTimeout(function () {
+                    button.textContent = original;
+                }, 1200);
+            }
+
+            function fallbackCopyPreset(payload) {
+                const buffer = document.createElement("textarea");
+                buffer.value = payload;
+                document.body.appendChild(buffer);
+                buffer.select();
+                document.execCommand("copy");
+                document.body.removeChild(buffer);
+            }
+
+            function buildExportPayload() {
+                const payload = readInputs();
+                payload.schemaVersion = EXPORT_SCHEMA_VERSION;
+                payload.buildTarget = EXPORT_BUILD_TARGET;
+                payload.buildTime = document.lastModified || null;
+                payload.exportedAtUtc = new Date().toISOString();
+                payload.exportedAtUnixMs = Date.now();
+                const observedFlight = serializeObservedFlight(loadedObservedFlight);
+                if (observedFlight) {
+                    payload.observedFlight = observedFlight;
+                }
+                return payload;
+            }
+
+            function copyPreset() {
+                const payload = JSON.stringify(buildExportPayload(), null, 2);
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(payload).then(function () {
+                        flashButtonState("copyPreset", "Copied");
+                    }).catch(function () {
+                        fallbackCopyPreset(payload);
+                        flashButtonState("copyPreset", "Copied");
+                    });
+                    return;
+                }
+
+                fallbackCopyPreset(payload);
+                flashButtonState("copyPreset", "Copied");
+            }
+
+            function clearObservedFlight() {
+                loadedObservedFlight = null;
+                renderAll();
+                flashButtonState("clearObservedFlight", "Cleared");
+            }
+
+            function loadPreset() {
+                const rawValue = document.getElementById("presetJson").value.trim();
+                if (rawValue.length === 0) {
+                    flashButtonState("loadPreset", "Paste JSON");
+                    return;
+                }
+
+                try {
+                    const parsed = JSON.parse(rawValue);
+                    const presetInputs = buildPresetInputs(parsed);
+                    loadedObservedFlight = normalizeObservedFlight(parsed.observedFlight, presetInputs.origin);
+                    fillInputs(presetInputs);
+                    renderAll();
+                    flashButtonState("loadPreset", "Loaded");
+                } catch (error) {
+                    flashButtonState("loadPreset", "Invalid JSON");
+                }
+            }
+
+            fillInputs(defaults);
+
+            fieldIds.forEach(function (id) {
+                const input = document.getElementById(id);
+                input.addEventListener("input", renderAll);
+                input.addEventListener("change", renderAll);
+            });
+
+            document.getElementById("resetDefaults").addEventListener("click", function () {
+                fillInputs(defaults);
+                renderAll();
+            });
+            document.getElementById("copyPreset").addEventListener("click", copyPreset);
+            document.getElementById("loadPreset").addEventListener("click", loadPreset);
+            document.getElementById("clearObservedFlight").addEventListener("click", clearObservedFlight);
+
+            if (typeof ResizeObserver === "function") {
+                const observer = new ResizeObserver(function () {
+                    if (currentResult !== null) {
+                        renderCanvas(currentResult);
+                    }
+                });
+                observer.observe(canvasWrap);
+            }
+
+            window.addEventListener("resize", function () {
+                if (currentResult !== null) {
+                    renderCanvas(currentResult);
+                }
+            });
+
+            renderAll();
+        }());
+    </script>
+</body>
+</html>

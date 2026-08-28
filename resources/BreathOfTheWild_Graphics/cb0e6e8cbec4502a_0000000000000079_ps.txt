@@ -1,0 +1,23 @@
+#version 420
+#extension GL_ARB_separate_shader_objects : enable
+#ifdef VULKAN
+#define TEXTURE_LAYOUT(__glLocation, __vkSet, __vkLocation) layout(set = __vkSet, binding = __vkLocation)
+#else
+#define TEXTURE_LAYOUT(__glLocation, __vkSet, __vkLocation) layout(binding = __glLocation)
+#endif
+
+// shader cb0e6e8cbec4502a
+// Used for: 1 pass Battle, Camera and Scope Depth of Field Blur
+// Neutralised by sampling the centre instead of averaging a disc of taps. This pass fills a
+// target that is composited later, so it has to keep writing: discarding would leave whatever
+// the target held before. One shader covers lock-on, the camera rune and the scope, so all
+// three lose their blur together.
+
+TEXTURE_LAYOUT(0, 1, 0) uniform sampler2D textureUnitPS0;
+layout(location = 0) in vec4 passParameterSem3;
+layout(location = 0) out vec4 passPixelColor0;
+
+void main() {
+	vec2 center = ( passParameterSem3.xy + passParameterSem3.zw ) / 2.0 ;
+	passPixelColor0 = vec4( texture( textureUnitPS0, center ).xyz, 0.0 );
+}

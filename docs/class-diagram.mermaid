@@ -1,0 +1,94 @@
+classDiagram
+  direction LR
+
+  class LegTrackingSettings {
+    +BoolSetting enabled
+    +FloatSetting walkSensitivity
+    +FloatSetting runSpeedThreshold
+    +FloatSetting runStepFrequency
+    +FloatSetting crouchDepth
+    +FloatSetting jumpLiftThreshold
+    +FloatSetting deadzone
+    +FloatSetting stanceSpeedThreshold
+    +FloatSetting smoothingTau
+    +BoolSetting showDebug
+    +FloatSetting standHmdY
+    +FloatSetting standFootY
+    +FloatSetting baseFootSpeed
+    +BoolSetting calibrated
+  }
+
+  class FootSample {
+    +bool active
+    +glm::vec3 position
+    +glm::vec3 velocity
+    +float speed
+    +float height
+  }
+
+  class GaitFeatures {
+    +float stepFrequency
+    +float strideLength
+    +float stepLength
+    +GaitPhase phase
+    +bool leftInSwing
+    +bool rightInSwing
+    +float gaitCyclePhase
+  }
+
+  class LegMotionResult {
+    +glm::vec2 walkVector
+    +bool isRun
+    +bool isCrouch
+    +bool isJump
+    +GaitFeatures gait
+    +bool footValid[2]
+    +float footSpeed[2]
+  }
+
+  class LegMotionAnalyzer {
+    -FootState footState[2]
+    -glm::vec2 filteredWalk
+    -float stepFreqEMA
+    -JumpState jump
+    -CrouchState crouch
+    +Reset() void
+    +Calibrate(footPos[2], hmdPos, cfg) void
+    -DetectGaitCycle(foot[2], dt, cfg) void
+    -ComputeMovementVector(foot[2], hmdYaw, dt, cfg) glm::vec2
+    +Update(footLoc[2], footVel[2], footActive[2], hmdPos, hmdYaw, dt, cfg) LegMotionResult
+  }
+
+  class OpenXR {
+    +bool m_supportsViveTracker
+    +XrAction m_footPoseAction
+    +XrPath m_footPaths[2]
+    +XrSpace m_footSpaces[2]
+    +Capabilities.supportsViveTracker
+  }
+
+  class Shared {
+    +XrSpaceLocation footPoseLocation[2]
+    +XrSpaceVelocity footPoseVelocity[2]
+    +XrActionStatePose footPose[2]
+  }
+
+  class ControlsInject {
+    +hook_InjectXRInput()
+    +processJoystickInput()
+  }
+
+  class DebugOverlay {
+    +DrawLegTrackingDebug()
+  }
+
+  LegMotionAnalyzer ..> FootSample : consumes
+  LegMotionAnalyzer ..> GaitFeatures : produces
+  LegMotionAnalyzer ..> LegMotionResult : produces
+  LegMotionResult *-- GaitFeatures
+  OpenXR ..> Shared : populates(footPose*)
+  LegMotionAnalyzer ..> LegTrackingSettings : reads(cfg)
+  ControlsInject ..> LegMotionAnalyzer : Update()
+  ControlsInject ..> Shared : reads(foot*)
+  DebugOverlay ..> LegMotionAnalyzer : GetLastResult()
+  LegTrackingSettings ..> OpenXR : gated by supportsViveTracker
