@@ -30,4 +30,5 @@ namespace ImGuiMenus {
     void DrawWeaponSensitivityOverlays();
     bool IsWeaponSensitivityOverlayVisible(OpenXR::EyeSide side);
     void SetWeaponSensitivityOverlayVisible(OpenXR::EyeSide side, bool visible);
+    void DrawLegTrackingOverlay();
 }

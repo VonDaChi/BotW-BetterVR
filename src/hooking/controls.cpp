@@ -3,7 +3,7 @@
 #include "cemu_hooks.h"
 #include "../instance.h"
 #include "openxr_motion_bridge.h"
-#include "../leg_motion.h"
+#include "leg_motion.h"
 
 #include <cstdio>
 #include <ctime>

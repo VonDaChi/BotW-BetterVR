@@ -957,7 +957,7 @@ namespace ImGuiMenus {
         const float windowSizeX = ImGui::GetIO().DisplaySize.x;
         const float windowSizeY = ImGui::GetIO().DisplaySize.y;
         ImGui::SetNextWindowPos(ImVec2(windowSizeX - pad - width, windowSizeY - pad - height),
-            ImGuiCond_Always, Vec2(0.0f, 1.0f));
+            ImGuiCond_Always, ImVec2(0.0f, 1.0f));
 
         if ( ImGui::Begin("Leg Tracking", nullptr,
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
