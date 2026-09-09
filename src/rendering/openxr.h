@@ -2,6 +2,7 @@
 
 #include "hooking/rumble.h"
 #include "utils/controller_bindings.h"
+#include "rendering/openvr_client.h"
 
 class OpenXR {
     friend class RND_Renderer;
@@ -27,6 +28,7 @@ public:
         bool supportsPicoUltraController;
         bool supportsCosmosController;
         bool supportsHPMixedRealityController;
+        bool supportsViveTracker = false; // XR_HTCX_vive_tracker_interaction (foot trackers)
         ControllerType activeControllerType = ControllerType::Unknown;
     } m_capabilities = {};
 
@@ -68,6 +70,12 @@ public:
             std::array<XrActionStatePose, 2> aimPose;
             std::array<XrSpaceLocation, 2> aimPoseLocation;
             std::array<XrSpaceLocation, 2> hmdRelativePoseLocation;
+
+            // Leg tracking: foot trackers (XR_HTCX_vive_tracker_interaction), indexed by EyeSide (LEFT=0, RIGHT=1).
+            // Poses are located in m_stageSpace, same coordinate system as the hand poses.
+            std::array<XrActionStatePose, 2> footPose;
+            std::array<XrSpaceLocation, 2> footPoseLocation;
+            std::array<XrSpaceVelocity, 2> footPoseVelocity;
 
             XrActionStateBoolean inventory_map;
             ButtonState inventory_mapState;
@@ -171,6 +179,20 @@ public:
         bool right_hand_position_stored = false;
         int magnesis_forward_frames_interval = 0;
         bool trigger_pressed_over_body_slot = false;
+
+        // Leg tracking (P2-C): shared status for the HUD overlay. Written by
+        // controls.cpp each frame, read by ImGuiMenus::DrawLegTrackingOverlay.
+        struct LegMotionStatus {
+            float walk_x = 0.0f;          // HMD-local right component (-1..1)
+            float walk_y = 0.0f;          // HMD-local forward component (-1..1)
+            bool is_run = false;
+            bool is_jump = false;         // true only on the trigger frame
+            bool is_crouch = false;       // true while crouch dwell satisfied
+            bool calibrated = false;
+            float stand_foot_y = 0.0f;    // calibrated floor height (m)
+            uint32_t frames_since_update = 0; // increments while feet are invalid
+        };
+        LegMotionStatus legMotionStatus;
     };
     std::atomic<GameState> m_gameState{};
     std::atomic_bool m_isMenuOpen = false;
@@ -208,6 +230,13 @@ private:
     };
     void ReplaceStageSpace(float floorOffset);
 
+    // Leg tracking diagnostics: logs every tracker role path the OpenXR runtime exposes.
+    void LogAvailableViveTrackerPaths();
+
+    // Re-suggests the HTCX Vive Tracker interaction profile bindings if they were rejected at
+    // startup. Called from UpdateActions the first time the runtime starts exposing tracker paths.
+    void EnsureViveTrackerBindingsSuggested();
+
     XrInstance m_instance = XR_NULL_HANDLE;
     XrSystemId m_systemId = XR_NULL_SYSTEM_ID;
     XrSession m_session = XR_NULL_HANDLE;
@@ -225,6 +254,18 @@ private:
     std::array<XrSpace, 2> m_inMenuHandSpaces = { XR_NULL_HANDLE, XR_NULL_HANDLE };
     std::array<XrSpace, 2> m_inMenuAimSpaces = { XR_NULL_HANDLE, XR_NULL_HANDLE };
     std::array<XrPath, 2> m_handPaths = { XR_NULL_PATH, XR_NULL_PATH };
+
+    // Leg tracking: foot tracker subaction paths + action spaces (indexed by EyeSide)
+    std::array<XrPath, 2> m_footPaths = { XR_NULL_PATH, XR_NULL_PATH };
+    std::array<XrSpace, 2> m_footSpaces = { XR_NULL_HANDLE, XR_NULL_HANDLE };
+    XrAction m_footPoseAction = XR_NULL_HANDLE;
+    // Set to true the first time we successfully (or terminally) re-suggest the HTCX Vive Tracker
+    // interaction profile bindings from inside UpdateActions. The startup-time SuggestControllerBindings
+    // call may have been rejected with PATH_UNSUPPORTED because no trackers were exposed yet (e.g.
+    // ALVR fake Vive trackers were not yet enumerated by the SteamVR OpenVR layer when the layer
+    // started). In that case we retry once xrEnumerateViveTrackerPathsHTCX starts reporting
+    // pathCount > 0, so late-arriving trackers can still be picked up within the same session.
+    bool m_footTrackerBindingsSuggested = false;
 
     XrAction m_inGameGripPoseAction = XR_NULL_HANDLE;
     XrAction m_inGameAimPoseAction = XR_NULL_HANDLE;
@@ -279,6 +320,30 @@ private:
     PFN_xrConvertWin32PerformanceCounterToTimeKHR func_xrConvertWin32PerformanceCounterToTimeKHR = nullptr;
     PFN_xrCreateDebugUtilsMessengerEXT func_xrCreateDebugUtilsMessengerEXT = nullptr;
     PFN_xrDestroyDebugUtilsMessengerEXT func_xrDestroyDebugUtilsMessengerEXT = nullptr;
+
+    // Leg tracking: XR_HTCX_vive_tracker_interaction (only non-null when m_capabilities.supportsViveTracker)
+    PFN_xrEnumerateViveTrackerPathsHTCX func_xrEnumerateViveTrackerPathsHTCX = nullptr;
+
+    // Leg tracking — dual backend (XR_HTCX preferred, OpenVR fallback for ALVR's fake Vive trackers
+    // that never surface through the SteamVR OpenXR bridge). Both backends write into the same
+    // InputState::Shared::footPose*[] fields so downstream consumers don't need to know which
+    // backend is active.
+    std::unique_ptr<OpenVRClient> m_openvrClient;
+    enum class LegBackend : uint8_t { XrHtcx, OpenVr, Disabled };
+    // Source-of-truth for the foot data this frame; written by PollFeet via either backend.
+    LegBackend m_activeFootBackend = LegBackend::XrHtcx;
+    // AUTO-mode state: wall-clock anchor for the "no feet seen for 10s -> switch to OpenVR" rule.
+    std::chrono::steady_clock::time_point m_autoBackendFirstFootCheck{};
+    // Once a transition fires in AUTO, we don't oscillate between the two backends every frame.
+    bool m_autoBackendDecided = false;
+
+    // Backfills InputState::Shared::footPose/footPoseLocation/footPoseVelocity from an
+    // OpenVRTrackerPose (OpenVR backend) so the layout matches what XR_HTCX produces. The newState
+    // parameter is the same publish-ready buffer that UpdateActions holds non-const; we write into
+    // it directly to avoid racing with the m_input.publish that follows.
+    void WriteFootFromOpenVR(EyeSide side, const OpenVRTrackerPose& pose, InputState& newState);
+    // Throttled (1 Hz) per-frame leg-tracking diagnostic log across both backends.
+    void LogFootDiagnostics(const InputState& newState);
 };
 using ButtonState = OpenXR::InputState::ButtonState;
 using EyeSide = OpenXR::EyeSide;

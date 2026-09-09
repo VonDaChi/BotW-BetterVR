@@ -924,6 +924,74 @@ namespace ImGuiMenus {
         ImGui::End();
     }
 
+    void DrawLegTrackingOverlay() {
+        // Only draw when leg tracking is enabled and we are in-game.
+        if (!GetSettings().legTrackingEnabled) return;
+        const auto gameState = VRManager::instance().XR->m_gameState.load();
+        if (!gameState.in_game) return;
+
+        const auto& status = gameState.legMotionStatus;
+        const float walkMag = std::sqrt(status.walk_x * status.walk_x + status.walk_y * status.walk_y);
+
+        // Pick a color based on the current gait.
+        const char* gaitLabel = "Idle";
+        const char* gaitColor = "##legtrack_idle";
+        if (status.is_jump) {
+            gaitLabel = "JUMP";
+            gaitColor = "##legtrack_jump";
+        }
+        else if (status.is_run) {
+            gaitLabel = "RUN";
+            gaitColor = "##legtrack_run";
+        }
+        else if (walkMag > 0.02f) {
+            gaitLabel = "WALK";
+            gaitColor = "##legtrack_walk";
+        }
+
+        // Position bottom-right so it does not clash with the FPS overlay.
+        ImGui::SetNextWindowBgAlpha(0.5f);
+        const float pad = 10.0f;
+        const float width = 260.0f;
+        const float height = 110.0f;
+        const float windowSizeX = ImGui::GetIO().DisplaySize.x;
+        const float windowSizeY = ImGui::GetIO().DisplaySize.y;
+        ImGui::SetNextWindowPos(ImVec2(windowSizeX - pad - width, windowSizeY - pad - height),
+            ImGuiCond_Always, Vec2(0.0f, 1.0f));
+
+        if ( ImGui::Begin("Leg Tracking", nullptr,
+            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+           5)) {
+            if (!status.calibrated) {
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Calibrating stand height...");
+            }
+            else if (status.frames_since_update > 60) {
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Feet not detected");
+            }
+            else {
+                if (status.is_jump) {
+                    ImGui::TextColored(ImVec4(0.2f, 0.8f, 1.0f, 1.0f), "JUMP");
+                }
+                else if (status.is_run) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "RUN");
+                }
+                else if (walkMag > 0.02f) {
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "WALK");
+                }
+                else {
+                    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "IDLE");
+                }
+                ImGui::Text("Walk vector: %+.2f / %+.2f", status.walk_x, status.walk_y);
+                ImGui::Text("Speed: %.2f m/s", walkMag);
+                if (status.calibrated) {
+                    ImGui::Text("Floor: %.3f m", status.stand_foot_y);
+                }
+            }
+        }
+        ImGui::End();
+    }
+
     void DrawWeaponSensitivityOverlays() {
         for (uint8_t sideIdx = 0; sideIdx < WeaponAttackDebugger::s_showWeaponSensitivityOverlay.size(); ++sideIdx) {
             if (!WeaponAttackDebugger::s_showWeaponSensitivityOverlay[sideIdx]) {
@@ -1107,6 +1175,30 @@ void RND_Renderer::ImGuiOverlay::DrawControlsPage(bool* changed) {
         DrawSetting("Stick Direction Threshold", "How far you push the stick before it counts as a direction.", [&]() {
             settings.axisThreshold.AddPercentToGUI(changed, 10.0f, 90.0f);
         });
+        EndSettingsSection();
+    }
+
+    if (BeginSettingsSection("##LegTracking", "Leg Tracking")) {
+        DrawSetting("Leg Tracking Backend",
+            "How to read foot-tracker poses. AUTO (default) uses OpenXR vive_tracker_htcx and falls back to OpenVR if no feet are seen for 10s. Pick OpenVR if SteamVR shows your foot trackers but BetterVR logs 'foot L/R INACTIVE'. Pick Disabled to turn the feature off.",
+            [&]() {
+                settings.legTrackingBackend.AddComboToGUI(changed);
+            });
+        DrawSetting("Enable Leg Locomotion",
+            "Override the gamepad's left stick with the foot-derived walk vector so you physically walk in place. A jump event triggers the X button. Turn this on after your foot trackers are visible in SteamVR.",
+            [&]() {
+                settings.legTrackingEnabled.AddToGUI(changed);
+            });
+        DrawSetting("Crouch Dwell (ms)",
+            "How long both feet must stay below the calibrated stand height before a crouch is injected. Lower values react faster but are more prone to false triggers from ankle roll.",
+            [&]() {
+                settings.legCrouchDwellMs.AddToGUI(changed, 50, 1000, "%d ms");
+            });
+        DrawSetting("Record Leg Data",
+            "Write per-frame foot and headset data to BetterVR_legrec_<timestamp>.csv (in the Cemu folder) for offline gait analysis. Turn it on before a capture session and off afterwards. The toggle always resets to off on the next launch.",
+            [&]() {
+                settings.legTrackingRecordData.AddToGUI(changed);
+            });
         EndSettingsSection();
     }
 

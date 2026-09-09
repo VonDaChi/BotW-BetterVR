@@ -3,6 +3,8 @@
 #include "openxr.h"
 #include "instance.h"
 
+#include "utils/mod_settings.h"
+
 #ifndef XR_BD_ULTRA_CONTROLLER_INTERACTION_EXTENSION_NAME
 #define XR_BD_ULTRA_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_BD_ultra_controller_interaction"
 #endif
@@ -13,6 +15,12 @@ static XrBool32 XR_DebugUtilsMessengerCallback(XrDebugUtilsMessageSeverityFlagsE
 }
 
 OpenXR::OpenXR() {
+    // Always allocate — the OpenVR backend may be selected by the user via LegTrackingBackend
+    // (= OPENVr) or by AUTO when XR_HTCX fails to surface trackers. Polling before allocation
+    // would force us to rebuild the client on every settings change.
+    m_openvrClient = std::make_unique<OpenVRClient>();
+    m_activeFootBackend = LegBackend::XrHtcx;
+
     uint32_t xrExtensionCount = 0;
     xrEnumerateInstanceExtensionProperties(NULL, 0, &xrExtensionCount, NULL);
     std::vector<XrExtensionProperties> instanceExtensions;
@@ -58,6 +66,11 @@ OpenXR::OpenXR() {
         else if (strcmp(extensionProperties.extensionName, XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME) == 0) {
             m_capabilities.supportsHPMixedRealityController = true;
         }
+        // Leg tracking: foot trackers (SteamVR trackers with a Left/Right Foot role).
+        // NOTE: the macro is all-caps: XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME.
+        else if (strcmp(extensionProperties.extensionName, XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME) == 0) {
+            m_capabilities.supportsViveTracker = true;
+        }
     }
 
     if (!d3d12Supported) {
@@ -82,6 +95,7 @@ OpenXR::OpenXR() {
     if (m_capabilities.supportsPicoUltraController) enabledExtensions.emplace_back(XR_BD_ULTRA_CONTROLLER_INTERACTION_EXTENSION_NAME);
     if (m_capabilities.supportsCosmosController) enabledExtensions.emplace_back(XR_HTC_VIVE_COSMOS_CONTROLLER_INTERACTION_EXTENSION_NAME);
     if (m_capabilities.supportsHPMixedRealityController) enabledExtensions.emplace_back(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME);
+    if (m_capabilities.supportsViveTracker) enabledExtensions.emplace_back(XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME);
 
     XrInstanceCreateInfo xrInstanceCreateInfo = { XR_TYPE_INSTANCE_CREATE_INFO };
     xrInstanceCreateInfo.createFlags = 0;
@@ -115,6 +129,9 @@ OpenXR::OpenXR() {
     if (debugUtilsSupported) {
         xrGetInstanceProcAddr(m_instance, "xrCreateDebugUtilsMessengerEXT", (PFN_xrVoidFunction*)&func_xrCreateDebugUtilsMessengerEXT);
         xrGetInstanceProcAddr(m_instance, "xrDestroyDebugUtilsMessengerEXT", (PFN_xrVoidFunction*)&func_xrDestroyDebugUtilsMessengerEXT);
+    }
+    if (m_capabilities.supportsViveTracker) {
+        xrGetInstanceProcAddr(m_instance, "xrEnumerateViveTrackerPathsHTCX", (PFN_xrVoidFunction*)&func_xrEnumerateViveTrackerPathsHTCX);
     }
 
     // Create debug utils messenger
@@ -334,14 +351,20 @@ void OpenXR::CreateActions() {
 
     m_handPaths = { GetXRPath("/user/hand/left"), GetXRPath("/user/hand/right") };
 
-    auto createAction = [this](const XrActionSet& actionSet, const char* id, const char* name, XrActionType actionType, XrAction& action) {
+    // Creates an action bound to an explicit set of subaction paths. Hand actions use
+    // /user/hand/{left,right}, while the foot tracker pose action needs
+    // /user/vive_tracker_htcx/role/{left_foot,right_foot} instead.
+    auto createActionWithPaths = [this](const XrActionSet& actionSet, const char* id, const char* name, XrActionType actionType, XrAction& action, const std::array<XrPath, 2>& subactionPaths) {
         XrActionCreateInfo actionInfo = { XR_TYPE_ACTION_CREATE_INFO };
         actionInfo.actionType = actionType;
         strncpy_s(actionInfo.actionName, id, XR_MAX_ACTION_NAME_SIZE-1);
         strncpy_s(actionInfo.localizedActionName, name, XR_MAX_LOCALIZED_ACTION_NAME_SIZE-1);
-        actionInfo.countSubactionPaths = (uint32_t)m_handPaths.size();
-        actionInfo.subactionPaths = m_handPaths.data();
+        actionInfo.countSubactionPaths = (uint32_t)subactionPaths.size();
+        actionInfo.subactionPaths = subactionPaths.data();
         checkXRResult(xrCreateAction(actionSet, &actionInfo, &action), std::format("Failed to create action for {}", id).c_str());
+    };
+    auto createAction = [this, &createActionWithPaths](const XrActionSet& actionSet, const char* id, const char* name, XrActionType actionType, XrAction& action) {
+        createActionWithPaths(actionSet, id, name, actionType, action, m_handPaths);
     };
 
     {
@@ -369,6 +392,16 @@ void OpenXR::CreateActions() {
         createAction(m_gameplayActionSet, "ingame_inventory_map", "Open Inventory (Quick press) - Open Map (Long press)", XR_ACTION_TYPE_BOOLEAN_INPUT, m_inGame_inventory_mapAction);
 
         createAction(m_gameplayActionSet, "rumble", "Rumble", XR_ACTION_TYPE_VIBRATION_OUTPUT, m_rumbleAction);
+
+        // Leg tracking: the foot pose action must be created with the tracker subaction paths,
+        // not the hand paths, otherwise xrGetActionStatePose will never report isActive.
+        if (m_capabilities.supportsViveTracker) {
+            m_footPaths = {
+                GetXRPath("/user/vive_tracker_htcx/role/left_foot"),
+                GetXRPath("/user/vive_tracker_htcx/role/right_foot")
+            };
+            createActionWithPaths(m_gameplayActionSet, "foot_pose", "Foot Pose", XR_ACTION_TYPE_POSE_INPUT, m_footPoseAction, m_footPaths);
+        }
     }
 
     {
@@ -426,8 +459,9 @@ void OpenXR::CreateActions() {
         bindings.rightTriggerAction = m_rightTriggerAction;
         bindings.inMenu_modMenuAction = m_inMenu_modMenuAction;
         bindings.inMenu_inventory_mapAction = m_inMenu_inventory_mapAction;
+        bindings.footPoseAction = m_footPoseAction;
 
-        SuggestControllerBindings(m_instance, bindings, m_capabilities.supportsPicoController, m_capabilities.supportsPicoUltraController, m_capabilities.supportsCosmosController, m_capabilities.supportsHPMixedRealityController);
+        SuggestControllerBindings(m_instance, bindings, m_capabilities.supportsPicoController, m_capabilities.supportsPicoUltraController, m_capabilities.supportsCosmosController, m_capabilities.supportsHPMixedRealityController, m_capabilities.supportsViveTracker);
     }
 
     XrSessionActionSetsAttachInfo attachInfo = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
@@ -458,11 +492,178 @@ void OpenXR::CreateActions() {
         checkXRResult(xrCreateActionSpace(m_session, &createInfo, &m_inMenuAimSpaces[side]), "Failed to create action space for menu aim pose!");
     }
 
+    // Leg tracking: one action space per foot tracker
+    if (m_capabilities.supportsViveTracker && m_footPoseAction != XR_NULL_HANDLE) {
+        for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
+            XrActionSpaceCreateInfo createInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
+            createInfo.action = m_footPoseAction;
+            createInfo.subactionPath = m_footPaths[side];
+            createInfo.poseInActionSpace = s_xrIdentityPose;
+            checkXRResult(xrCreateActionSpace(m_session, &createInfo, &m_footSpaces[side]), "Failed to create action space for foot pose!");
+        }
+    }
+
     // initialize rumble manager
     m_rumbleManager = std::make_unique<RumbleManager>(m_session, m_rumbleAction);
     m_rumbleManager.get()->initializeXrPathsAndStartTime(m_instance);
 
     m_capabilities.activeControllerType = DetectActiveControllerType(m_instance, m_session);
+
+    LogAvailableViveTrackerPaths();
+}
+
+void OpenXR::LogAvailableViveTrackerPaths() {
+    if (!m_capabilities.supportsViveTracker) {
+        Log::print<INFO>("[LegTrack] Foot tracking unavailable: runtime lacks {}", XR_HTCX_VIVE_TRACKER_INTERACTION_EXTENSION_NAME);
+        return;
+    }
+    if (func_xrEnumerateViveTrackerPathsHTCX == nullptr) {
+        Log::print<WARNING>("[LegTrack] xrEnumerateViveTrackerPathsHTCX could not be loaded - cannot list tracker roles");
+        return;
+    }
+
+    uint32_t pathCount = 0;
+    XrResult result = func_xrEnumerateViveTrackerPathsHTCX(m_instance, 0, &pathCount, nullptr);
+    if (result != XR_SUCCESS || pathCount == 0) {
+        Log::print<INFO>("[LegTrack] Runtime exposes {} tracker path(s) (result={}). Assign the Left/Right Foot role in SteamVR -> Manage Vive Trackers if you expect foot trackers.", pathCount, (int)result);
+        return;
+    }
+
+    std::vector<XrViveTrackerPathsHTCX> trackerPaths(pathCount, XrViveTrackerPathsHTCX{ XR_TYPE_VIVE_TRACKER_PATHS_HTCX });
+    result = func_xrEnumerateViveTrackerPathsHTCX(m_instance, pathCount, &pathCount, trackerPaths.data());
+    if (result != XR_SUCCESS) {
+        Log::print<WARNING>("[LegTrack] Failed to enumerate tracker paths (result={})", (int)result);
+        return;
+    }
+
+    Log::print<INFO>("[LegTrack] Runtime exposes {} tracker path(s):", pathCount);
+    for (const XrViveTrackerPathsHTCX& trackerPath : trackerPaths) {
+        char persistentPathBuffer[XR_MAX_PATH_LENGTH] = {};
+        char rolePathBuffer[XR_MAX_PATH_LENGTH] = {};
+        uint32_t bufferLength = 0;
+        xrPathToString(m_instance, trackerPath.persistentPath, (uint32_t)sizeof(persistentPathBuffer), &bufferLength, persistentPathBuffer);
+        bufferLength = 0;
+        xrPathToString(m_instance, trackerPath.rolePath, (uint32_t)sizeof(rolePathBuffer), &bufferLength, rolePathBuffer);
+        Log::print<INFO>("[LegTrack]   tracker: persistentPath={} rolePath={}", persistentPathBuffer, rolePathBuffer);
+    }
+}
+
+void OpenXR::EnsureViveTrackerBindingsSuggested() {
+    if (m_footTrackerBindingsSuggested) {
+        return;
+    }
+    if (m_footPoseAction == XR_NULL_HANDLE) {
+        return;
+    }
+
+    // Same bindings as the startup-time SuggestControllerBindings call (controller_bindings.h:329-340),
+    // re-issued because the runtime may have rejected them earlier when xrEnumerateViveTrackerPathsHTCX
+    // returned 0 trackers. With trackers now exposed, the runtime is expected to accept them.
+    std::array footBindings = {
+        XrActionSuggestedBinding{ .action = m_footPoseAction, .binding = GetXRPath("/user/vive_tracker_htcx/role/left_foot/input/grip/pose") },
+        XrActionSuggestedBinding{ .action = m_footPoseAction, .binding = GetXRPath("/user/vive_tracker_htcx/role/right_foot/input/grip/pose") },
+    };
+
+    XrInteractionProfileSuggestedBinding suggestedBindingsInfo = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+    suggestedBindingsInfo.interactionProfile = GetXRPath("/interaction_profiles/htcx/vive_tracker_htcx");
+    suggestedBindingsInfo.countSuggestedBindings = (uint32_t)footBindings.size();
+    suggestedBindingsInfo.suggestedBindings = footBindings.data();
+
+    XrResult result = xrSuggestInteractionProfileBindings(m_instance, &suggestedBindingsInfo);
+    if (result == XR_SUCCESS) {
+        m_footTrackerBindingsSuggested = true;
+        Log::print<INFO>("[LegTrack] Re-suggested HTCX Vive Tracker bindings (left/right foot grip pose).");
+        return;
+    }
+    if (result == XR_ERROR_PATH_UNSUPPORTED) {
+        // Terminal: the runtime knows about the extension + trackers exist, but still rejects the
+        // bindings. Mark as suggested so we stop retrying every second.
+        m_footTrackerBindingsSuggested = true;
+        Log::print<WARNING>("[LegTrack] xrSuggestInteractionProfileBindings rejected HTCX Vive Tracker profile (PATH_UNSUPPORTED) even though trackers are exposed. The runtime won't bridge these trackers to OpenXR; an OpenVR backend will be required for foot tracking.");
+        return;
+    }
+    Log::print<WARNING>("[LegTrack] xrSuggestInteractionProfileBindings for HTCX Vive Tracker profile failed: {}", (int)result);
+}
+
+// Backfills the per-frame foot-pose fields from OpenVR's TrackedDevicePose_t so the consumer
+// (leg motion analyser in controls.cpp) sees the same XrSpaceLocation/XrSpaceVelocity layout it
+// would have received from XR_HTCX. OpenVR is in the same chaperone origin as OpenXR's stage
+// space, both use Y-up metres and -Z forward, so no further rotation is needed — only the
+// "stage floor" Y offset has to be subtracted (XR_REFERENCE_SPACE_TYPE_STAGE floors at Y=0,
+// OpenVR's TrackingUniverseStanding also floors there, but BetterVR's ReplaceStageSpace adds
+// m_stageFloorOffset so seated users can lower the floor; keep the convention).
+//
+// Caller passes the same newState it intends to publish via m_input (UpdateActions holds a
+// non-const InputState reference) so the write goes straight into the publish-ready buffer
+// rather than reloading m_input and racing with another frame's publish.
+void OpenXR::WriteFootFromOpenVR(EyeSide side, const OpenVRTrackerPose& pose, InputState& newState) {
+    XrSpaceLocation& loc = newState.shared.footPoseLocation[side];
+    XrSpaceVelocity& vel = newState.shared.footPoseVelocity[side];
+    XrActionStatePose& st = newState.shared.footPose[side];
+
+    loc.pose.orientation = { pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w };
+    // Subtract the stage floor offset so the consumer sees the same Y as XR_HTCX's m_stageSpace.
+    loc.pose.position = { pose.position.x, pose.position.y - m_stageFloorOffset, pose.position.z };
+    loc.locationFlags = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
+
+    vel.linearVelocity = { pose.linearVelocity.x, pose.linearVelocity.y, pose.linearVelocity.z };
+    vel.angularVelocity = { pose.angularVelocity.x, pose.angularVelocity.y, pose.angularVelocity.z };
+    vel.velocityFlags = XR_SPACE_VELOCITY_LINEAR_VALID_BIT | XR_SPACE_VELOCITY_ANGULAR_VALID_BIT;
+
+    // XrActionStatePose has no isPressed (only isActive); pose actions don't model a "pressed"
+    // axis. POSE_INPUT reports isActive=true whenever the source can supply a pose, regardless
+    // of any user input.
+    st.isActive = XR_TRUE;
+}
+
+// Throttled (1 Hz) leg-tracking diagnostic. Prints the active backend, the data source for each
+// side, and—if available—XYZ + horizontal speed. Also re-polls XR_HTCX tracker enumeration at
+// 1 Hz (it lives here, not in UpdateActions, because the runtime may start exposing trackers
+// long after the startup-time SuggestControllerBindings call).
+void OpenXR::LogFootDiagnostics(const InputState& newState) {
+    static std::chrono::steady_clock::time_point s_lastFootLogTime{};
+    const auto now = std::chrono::steady_clock::now();
+    if ((now - s_lastFootLogTime) < std::chrono::milliseconds(1000)) return;
+    s_lastFootLogTime = now;
+
+    const char* backendLabel = (m_activeFootBackend == LegBackend::OpenVr) ? "openvr" : "xr_htcx";
+    static const char* kOpenVRStateNames[] = { "NotInitialized", "Running", "Retrying", "Abandoned" };
+    const int openvrStateIdx = (int)m_openvrClient->GetState();
+    const char* openvrStateName = (openvrStateIdx >= 0 && openvrStateIdx <= 3) ? kOpenVRStateNames[openvrStateIdx] : "?";
+    Log::print<INFO>("[LegTrack] backend={} openvrState={}({})", backendLabel, openvrStateIdx, openvrStateName);
+
+    // XR_HTCX-only: re-poll runtime for newly-exposed trackers once per second. If the binding
+    // was never accepted and we just saw pathCount turn non-zero, retry the bindings.
+    if (m_activeFootBackend == LegBackend::XrHtcx && func_xrEnumerateViveTrackerPathsHTCX != nullptr) {
+        uint32_t pathCount = 0;
+        XrResult enumResult = func_xrEnumerateViveTrackerPathsHTCX(m_instance, 0, &pathCount, nullptr);
+        Log::print<INFO>("[LegTrack] Enumerate: pathCount={} (result={})", pathCount, (int)enumResult);
+        if (enumResult == XR_SUCCESS && pathCount > 0 && !m_footTrackerBindingsSuggested) {
+            EnsureViveTrackerBindingsSuggested();
+        }
+    }
+
+    for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
+        const char* sideName = (side == EyeSide::LEFT) ? "L" : "R";
+        const XrActionStatePose& footPose = newState.shared.footPose[side];
+        const XrSpaceLocation& footLocation = newState.shared.footPoseLocation[side];
+        const XrSpaceVelocity& footVelocity = newState.shared.footPoseVelocity[side];
+
+        if (footPose.isActive != XR_TRUE) {
+            Log::print<INFO>("[LegTrack] foot {} INACTIVE (no tracker bound via {})", sideName, backendLabel);
+            continue;
+        }
+        if ((footLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) == 0) {
+            Log::print<INFO>("[LegTrack] foot {} active but position INVALID (flags={:#x})", sideName, (uint32_t)footLocation.locationFlags);
+            continue;
+        }
+
+        const XrVector3f& p = footLocation.pose.position;
+        const XrVector3f& v = footVelocity.linearVelocity;
+        const float horizontalSpeed = std::sqrt(v.x * v.x + v.z * v.z);
+        Log::print<INFO>("[LegTrack] foot {} pos=({:.3f}, {:.3f}, {:.3f}) hSpeed={:.3f} m/s vY={:.3f}",
+            sideName, p.x, p.y, p.z, horizontalSpeed, v.y);
+    }
 }
 
 void CheckButtonState(bool buttonPressed, ButtonState& buttonState) {
@@ -523,53 +724,57 @@ std::optional<OpenXR::InputState> OpenXR::UpdateActions(XrTime predictedFrameTim
     newState.shared.in_game = !inMenu;
     newState.shared.inputTime = predictedFrameTime;
 
-    for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
-        auto locatePose = [&](XrAction action, XrSpace handSpace, XrActionStatePose& poseState, XrSpaceLocation& outLocation, XrSpaceVelocity* outVelocity, const char* errorContext) {
-            XrActionStateGetInfo getPoseInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
-            getPoseInfo.action = action;
-            getPoseInfo.subactionPath = m_handPaths[side];
-            poseState = { XR_TYPE_ACTION_STATE_POSE };
-            checkXRResult(xrGetActionStatePose(m_session, &getPoseInfo, &poseState), errorContext);
+    // Locates a pose action inside m_stageSpace. The subaction path is passed in explicitly so that
+    // this single helper can serve both the hands (/user/hand/...) and the foot trackers
+    // (/user/vive_tracker_htcx/role/...) without duplicating any of the velocity fix-up logic.
+    auto locatePose = [&](XrAction action, XrSpace poseSpace, XrPath subactionPath, XrActionStatePose& poseState, XrSpaceLocation& outLocation, XrSpaceVelocity* outVelocity, const char* errorContext) {
+        XrActionStateGetInfo getPoseInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
+        getPoseInfo.action = action;
+        getPoseInfo.subactionPath = subactionPath;
+        poseState = { XR_TYPE_ACTION_STATE_POSE };
+        checkXRResult(xrGetActionStatePose(m_session, &getPoseInfo, &poseState), errorContext);
 
-            outLocation = { XR_TYPE_SPACE_LOCATION };
-            if (!poseState.isActive) {
-                if (outVelocity != nullptr) {
-                    *outVelocity = { XR_TYPE_SPACE_VELOCITY };
-                }
-                return;
-            }
-
-            XrSpaceLocation spaceLocation = { XR_TYPE_SPACE_LOCATION };
-            XrSpaceVelocity spaceVelocity = { XR_TYPE_SPACE_VELOCITY };
+        outLocation = { XR_TYPE_SPACE_LOCATION };
+        if (!poseState.isActive) {
             if (outVelocity != nullptr) {
-                spaceLocation.next = &spaceVelocity;
-                outVelocity->linearVelocity = { 0.0f, 0.0f, 0.0f };
-                outVelocity->angularVelocity = { 0.0f, 0.0f, 0.0f };
+                *outVelocity = { XR_TYPE_SPACE_VELOCITY };
             }
+            return;
+        }
 
-            checkXRResult(xrLocateSpace(handSpace, m_stageSpace, predictedFrameTime, &spaceLocation), "Failed to get location from controllers!");
-            if ((spaceLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0 && (spaceLocation.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
-                outLocation = spaceLocation;
+        XrSpaceLocation spaceLocation = { XR_TYPE_SPACE_LOCATION };
+        XrSpaceVelocity spaceVelocity = { XR_TYPE_SPACE_VELOCITY };
+        if (outVelocity != nullptr) {
+            spaceLocation.next = &spaceVelocity;
+            outVelocity->linearVelocity = { 0.0f, 0.0f, 0.0f };
+            outVelocity->angularVelocity = { 0.0f, 0.0f, 0.0f };
+        }
 
-                if (outVelocity != nullptr && (spaceLocation.locationFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0 && (spaceLocation.locationFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT) != 0) {
-                    // rotate angular velocity to world space when it's using a buggy runtime
-                    auto mode = GetSettings().AngularVelocityFixer_GetMode();
-                    bool isUsingQuestRuntime = m_capabilities.isOculusLinkRuntime;
-                    if ((mode == AngularVelocityFixerMode::AUTO && isUsingQuestRuntime) || mode == AngularVelocityFixerMode::FORCED_ON) {
-                        glm::vec3 angularVelocity = ToGLM(spaceVelocity.angularVelocity);
-                        glm::fquat fix_angle = glm::fquat(0.924, -0.383, 0, 0);
-                        angularVelocity = (ToGLM(spaceLocation.pose.orientation) * (fix_angle * angularVelocity)); // TODO: Contact other modders for similar issues with angular velocity being not on the grip rotation (quest 2) + Tune the angular velocity based on manually calculated on rotation positions
-                        spaceVelocity.angularVelocity = { angularVelocity.x, angularVelocity.y, angularVelocity.z };
-                    }
+        checkXRResult(xrLocateSpace(poseSpace, m_stageSpace, predictedFrameTime, &spaceLocation), "Failed to get location from controllers!");
+        if ((spaceLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0 && (spaceLocation.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
+            outLocation = spaceLocation;
 
-                    *outVelocity = spaceVelocity;
+            if (outVelocity != nullptr && (spaceLocation.locationFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0 && (spaceLocation.locationFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT) != 0) {
+                // rotate angular velocity to world space when it's using a buggy runtime
+                auto mode = GetSettings().AngularVelocityFixer_GetMode();
+                bool isUsingQuestRuntime = m_capabilities.isOculusLinkRuntime;
+                if ((mode == AngularVelocityFixerMode::AUTO && isUsingQuestRuntime) || mode == AngularVelocityFixerMode::FORCED_ON) {
+                    glm::vec3 angularVelocity = ToGLM(spaceVelocity.angularVelocity);
+                    glm::fquat fix_angle = glm::fquat(0.924, -0.383, 0, 0);
+                    angularVelocity = (ToGLM(spaceLocation.pose.orientation) * (fix_angle * angularVelocity)); // TODO: Contact other modders for similar issues with angular velocity being not on the grip rotation (quest 2) + Tune the angular velocity based on manually calculated on rotation positions
+                    spaceVelocity.angularVelocity = { angularVelocity.x, angularVelocity.y, angularVelocity.z };
                 }
-            }
-        };
 
+                *outVelocity = spaceVelocity;
+            }
+        }
+    };
+
+    for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
         locatePose(
             newState.shared.in_game ? m_inGameGripPoseAction : m_inMenuGripPoseAction,
             newState.shared.in_game ? m_inGameHandSpaces[side] : m_inMenuHandSpaces[side],
+            m_handPaths[side],
             newState.shared.pose[side],
             newState.shared.poseLocation[side],
             &newState.shared.poseVelocity[side],
@@ -579,12 +784,116 @@ std::optional<OpenXR::InputState> OpenXR::UpdateActions(XrTime predictedFrameTim
         locatePose(
             newState.shared.in_game ? m_inGameAimPoseAction : m_inMenuAimPoseAction,
             newState.shared.in_game ? m_inGameAimSpaces[side] : m_inMenuAimSpaces[side],
+            m_handPaths[side],
             newState.shared.aimPose[side],
             newState.shared.aimPoseLocation[side],
             nullptr,
             "Failed to get aim pose of controller!"
         );
     }
+
+    // === Leg tracking: dual backend dispatch (XR_HTCX -> OpenVR fallback) ===
+    // Both backends write into newState.shared.footPose/footPoseLocation/footPoseVelocity so the
+    // downstream consumer (leg motion analyser) doesn't have to know which backend produced the
+    // pose. AUTO mode holds XR_HTCX as preferred for up to 10 s of zero-bound foot data, then
+    // switches permanently to OpenVR (the SteamVR OpenXR bridge is known to drop ALVR's fake Vive
+    // trackers; see XR_ERROR_PATH_UNSUPPORTED in EnsureViveTrackerBindingsSuggested). Manual mode
+    // (XR_HTCX only / OpenVR only / Disabled) honours the user choice.
+    if (const auto backend = GetSettings().legTrackingBackend.load(); backend != LegTrackingBackend::DISABLED) {
+        // (backend is now in scope; reference below)
+        const bool inGame = newState.shared.in_game;
+        const auto clock = std::chrono::steady_clock::now();
+
+        // Decide the active backend (idempotent — once AUTO decides, it sticks).
+        // Cast to int32_t for the switch: MSVC (C2451) rejects `switch (LegTrackingBackend)` because
+        // the enum class doesn't implicitly convert to bool (we accidentally wrote it as a ternary
+        // condition). The underlying type is int32_t, so static_cast is safe.
+        const int32_t backend_i32 = static_cast<int32_t>(backend);
+        switch (backend_i32) {
+            case static_cast<int32_t>(LegTrackingBackend::XR_HTCX):
+                m_activeFootBackend = LegBackend::XrHtcx;
+                break;
+            case static_cast<int32_t>(LegTrackingBackend::OPENVr):
+                m_activeFootBackend = LegBackend::OpenVr;
+                break;
+            case static_cast<int32_t>(LegTrackingBackend::AUTO):
+                if (!m_autoBackendDecided) {
+                    if (m_autoBackendFirstFootCheck == std::chrono::steady_clock::time_point{}) {
+                        m_autoBackendFirstFootCheck = clock;
+                    }
+                    // Only flip if XR_HTCX-side binding actually got rejected (PATH_UNSUPPORTED)
+                    // OR if 10 s of polling yield zero active trackers. Both conditions imply the
+                    // bridge will never surface ALVR's fake Vive trackers to OpenXR this session.
+                    const bool xrHtcxRejected = m_footTrackerBindingsSuggested
+                        && (m_footPoseAction == XR_NULL_HANDLE || !m_capabilities.supportsViveTracker);
+                    const bool tenSecondsNoData = (clock - m_autoBackendFirstFootCheck) > std::chrono::seconds(10);
+                    if (xrHtcxRejected || tenSecondsNoData) {
+                        m_activeFootBackend = LegBackend::OpenVr;
+                        m_autoBackendDecided = true;
+                        Log::print<INFO>("[LegTrack] AUTO: switching to OpenVR backend (xrHtcxRejected={}, tenSecondsNoData={})",
+                            xrHtcxRejected, tenSecondsNoData);
+                    }
+                }
+                break;
+            default:
+                m_activeFootBackend = LegBackend::XrHtcx;
+                break;
+        }
+
+    // Per-backend pose writes. Both produce the same XrSpaceLocation / XrSpaceVelocity layout;
+    // whichever ran last wins. Out-of-game clearing is unconditional so stale OpenXR pose data
+    // doesn't leak into UI / title-screen motion.
+    //
+    // OpenVR polling runs even when out-of-game: TryInitialize / device scanning are lazy and
+    // only start on the first PollFeet() call, so gating them on in_game would leave the backend
+    // dormant (and undiagnosable) on the title screen. Only the pose WRITES stay gated.
+    if (m_activeFootBackend == LegBackend::OpenVr && m_openvrClient) {
+        const auto feet = m_openvrClient->PollFeet();
+        for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
+            const OpenVRTrackerPose& p = feet[(int)side];
+            if (inGame && p.valid) {
+                WriteFootFromOpenVR(side, p, newState);
+            } else {
+                // Out-of-game, or PollFeet reported valid==false; clear stale data so the
+                // consumer can ignore it.
+                newState.shared.footPose[side] = { XR_TYPE_ACTION_STATE_POSE };
+                newState.shared.footPoseLocation[side] = { XR_TYPE_SPACE_LOCATION };
+                newState.shared.footPoseVelocity[side] = { XR_TYPE_SPACE_VELOCITY };
+            }
+        }
+    } else if (!inGame) {
+        for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
+            newState.shared.footPose[side] = { XR_TYPE_ACTION_STATE_POSE };
+            newState.shared.footPoseLocation[side] = { XR_TYPE_SPACE_LOCATION };
+            newState.shared.footPoseVelocity[side] = { XR_TYPE_SPACE_VELOCITY };
+        }
+    } else if (m_activeFootBackend == LegBackend::XrHtcx && m_capabilities.supportsViveTracker && m_footPoseAction != XR_NULL_HANDLE) {
+        for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
+            locatePose(
+                m_footPoseAction,
+                m_footSpaces[side],
+                m_footPaths[side],
+                newState.shared.footPose[side],
+                newState.shared.footPoseLocation[side],
+                &newState.shared.footPoseVelocity[side],
+                "Failed to get pose of foot tracker!"
+            );
+        }
+        // XR_HTCX runtime enumeration + re-bind live in LogFootDiagnostics (1 Hz gated) to
+        // avoid polluting the log when the runtime never surfaces trackers.
+    }
+
+    LogFootDiagnostics(newState);
+} else {
+    // Disabled: record the state and clear any stale pose data so the consumer doesn't see
+    // a "frozen" frame from the previous backend.
+    m_activeFootBackend = LegBackend::Disabled;
+    for (EyeSide side : { EyeSide::LEFT, EyeSide::RIGHT }) {
+        newState.shared.footPose[side] = { XR_TYPE_ACTION_STATE_POSE };
+        newState.shared.footPoseLocation[side] = { XR_TYPE_SPACE_LOCATION };
+        newState.shared.footPoseVelocity[side] = { XR_TYPE_SPACE_VELOCITY };
+    }
+}
     // update shared actions
     XrActionStateGetInfo getInventoryMapInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
     getInventoryMapInfo.action = newState.shared.in_game ? m_inGame_inventory_mapAction : m_inMenu_inventory_mapAction;

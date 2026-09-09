@@ -39,6 +39,9 @@ struct ControllerActionBindings {
     XrAction rightTriggerAction = XR_NULL_HANDLE;
     XrAction inMenu_modMenuAction = XR_NULL_HANDLE;
     XrAction inMenu_inventory_mapAction = XR_NULL_HANDLE;
+
+    // Leg tracking (XR_HTCX_vive_tracker_interaction)
+    XrAction footPoseAction = XR_NULL_HANDLE;
 };
 
 static XrPath GetPath(XrInstance instance, const char* str) {
@@ -61,7 +64,7 @@ static void SuggestProfileBindings(XrInstance instance, const char* interactionP
     checkXRResult(result, std::format("Failed to suggest bindings for the {} interaction profile!", interactionProfile).c_str());
 }
 
-inline void SuggestControllerBindings(XrInstance instance, const ControllerActionBindings& a, bool enablePicoBindings = true, bool enablePicoUltraBindings = true, bool enableCosmosBindings = true, bool enableHPMixedRealityBindings = true) {
+inline void SuggestControllerBindings(XrInstance instance, const ControllerActionBindings& a, bool enablePicoBindings = true, bool enablePicoUltraBindings = true, bool enableCosmosBindings = true, bool enableHPMixedRealityBindings = true, bool enableViveTrackerBindings = true) {
     {
         std::array suggestedBindings = {
             // === gameplay suggestions ===
@@ -321,6 +324,19 @@ inline void SuggestControllerBindings(XrInstance instance, const ControllerActio
             XrActionSuggestedBinding{ .action = a.inMenu_modMenuAction, .binding = GetPath(instance, "/user/hand/left/input/x/click") },
         };
         SuggestProfileBindings(instance, "/interaction_profiles/htc/vive_cosmos_controller", suggestedBindings.data(), (uint32_t)suggestedBindings.size(), true);
+    }
+
+    // === Leg tracking: HTCX Vive Tracker interaction profile ===
+    // Foot trackers (SteamVR trackers assigned the Left/Right Foot role, which includes
+    // Pico motion trackers forwarded through ALVR) are exposed under this profile.
+    // fatalOnUnsupported=false: many runtimes/streaming setups don't expose this profile,
+    // and a missing profile must never abort the startup of the mod.
+    if (enableViveTrackerBindings && a.footPoseAction != XR_NULL_HANDLE) {
+        std::array suggestedBindings = {
+            XrActionSuggestedBinding{ .action = a.footPoseAction, .binding = GetPath(instance, "/user/vive_tracker_htcx/role/left_foot/input/grip/pose") },
+            XrActionSuggestedBinding{ .action = a.footPoseAction, .binding = GetPath(instance, "/user/vive_tracker_htcx/role/right_foot/input/grip/pose") },
+        };
+        SuggestProfileBindings(instance, "/interaction_profiles/htcx/vive_tracker_htcx", suggestedBindings.data(), (uint32_t)suggestedBindings.size(), false);
     }
 }
 

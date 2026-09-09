@@ -37,6 +37,13 @@ cmake --build ./cmake-build-Release --target install   # 编译并安装到 ./Ce
 - [ ] 启动 BotW → 确认 VR 正常（头显 + 双手柄）
 - 说明：构建产物已就位，但「自己编译的版本能跑」需你在 Cemu 里实际启动一次验证。
 
+## ⚠️ 构建环境说明
+
+- **代理变量警告**：本环境会自动加载 `https_proxy` / `http_proxy` / `all_proxy` 等变量，导致 MSBuild CL.exe 崩溃（MSB6001）。在 `do_baseline_build.bat Release` 前加上 `unset https_proxy http_proxy all_proxy`。
+- **vcpkg 路径**：仓库里 `CMakeUserPresets.json` 三处写死 `VCPKG_ROOT = "C:\Programs\vcpkg"`，但本机安装的是 `C:\vcpkg`。已手动修正为本机路径，重构建无需改变。
+- **MSBuild 限制**：本沙箱禁用了系统级 `cmd.exe`，`build_mod.bat` 调用的 MSBuild 直接被拦截，编译失败。标准构建路径是 `cmake --preset Release`（配置）+ `cmake --build ./cmake-build-Release --target install`（安装目标名小写）。依赖（openxr-loader / glm / vulkan-headers / imgui / implot 等）已编译并缓存，重跑秒过。
+- **日志文件**：构建产物生成 `build_baseline*.log`，应在 `.gitignore` 中排除（已追加 6 项，含 `*.log`），避免升仓时推送大文件。
+
 ## 硬件 / 串流状态（step 0.3）
 - 设备：Pico Neo 3 + 全身 tracers
 - 串流：ALVR + PICO4 emulation

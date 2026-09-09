@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <vector>
+
 class ModSettingBase;
 
 inline std::vector<ModSettingBase*>& SettingRegistry() {
@@ -247,6 +250,19 @@ public:
 
     void AddToGUI(bool* changed) {
         AddWidgetToGUI(changed, [](bool* value) { return ImGui::Checkbox("##value", value); });
+    }
+};
+
+// Session-only bool toggle: Deserialize always resets to the default so a value persisted in the
+// settings file never re-enables the feature on the next launch. Used for one-shot workflow
+// switches (e.g. leg-tracking data recording) where silently resuming across sessions would be
+// surprising. The value is still written on save (and harmlessly ignored on load).
+class SessionBoolSetting : public BoolSetting {
+public:
+    using BoolSetting::BoolSetting;
+
+    void Deserialize(std::string_view) override {
+        Set(defaultValue);
     }
 };
 
@@ -516,6 +532,29 @@ struct EnumTable<SwingSensitivity> {
     });
 };
 
+// Controls which backend feeds foot-tracker poses into the locomotion system.
+// XR_HTCX (SteamVR OpenXR bridge + vive_tracker_htcx interaction profile) is the modern,
+// stable path. OpenVR (SteamVR's legacy IVRSystem API) is the fallback used when ALVR's
+// fake Vive trackers never surface through XR_HTCX — symptom: foot L/R INACTIVE in
+// BetterVR_log.txt despite SteamVR showing the trackers + a role assigned. AUTO chooses
+// XR_HTCX first and falls back to OpenVR after 10s of zero detected feet.
+enum class LegTrackingBackend : int32_t {
+    AUTO = 0,
+    XR_HTCX = 1,
+    OPENVr = 2,
+    DISABLED = 3,
+};
+
+template <>
+struct EnumTable<LegTrackingBackend> {
+    static constexpr auto entries = std::to_array<EnumEntry<LegTrackingBackend>>({
+        { LegTrackingBackend::AUTO, "AUTO", "Auto (XR_HTCX, fall back to OpenVR)" },
+        { LegTrackingBackend::XR_HTCX, "XR_HTCX", "SteamVR OpenXR only" },
+        { LegTrackingBackend::OPENVr, "OPENVr", "SteamVR OpenVR only (bypass bridge)" },
+        { LegTrackingBackend::DISABLED, "DISABLED", "Disabled (no leg tracking)" }
+    });
+};
+
 enum class TurnMode : int32_t {
     SMOOTH_SLOW = 0,
     SMOOTH_NORMAL = 1,
@@ -589,6 +628,13 @@ struct ModSettings {
     EnumSetting<WalkingDirection> walkingDirection{ "WalkingDirection", WalkingDirection::CAMERA };
     EnumSetting<TurnMode> turnMode{ "TurnMode", TurnMode::SMOOTH_NORMAL };
     EnumSetting<SwingSensitivity> swingSensitivity{ "SwingSensitivity", SwingSensitivity::SWING_NORMAL };
+    EnumSetting<LegTrackingBackend> legTrackingBackend{ "LegTrackingBackend", LegTrackingBackend::AUTO };
+    // P2-C locomotion injection. Session-only: always starts false on launch,
+    // so walking/jumping from leg motion never silently resumes next launch.
+    SessionBoolSetting legTrackingEnabled{ "LegTrackingEnabled", false };
+    NumberSetting<int> legCrouchDwellMs{ "LegCrouchDwellMs", 250 };
+    // P2-A gait-analysis data capture. Session-only: always starts false on launch.
+    SessionBoolSetting legTrackingRecordData{ "LegTrackingRecordData", false };
 
     static std::span<ModSettingBase* const> GetOptions() {
         return SettingRegistry();

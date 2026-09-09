@@ -25,6 +25,8 @@ target_sources(BetterVR_Layer PUBLIC
     ${CMAKE_SOURCE_DIR}/src/hooking/framebuffer.h
     ${CMAKE_SOURCE_DIR}/src/hooking/layer.cpp
     ${CMAKE_SOURCE_DIR}/src/hooking/layer.h
+    ${CMAKE_SOURCE_DIR}/src/hooking/leg_motion.cpp
+    ${CMAKE_SOURCE_DIR}/src/hooking/leg_motion.h
     ${CMAKE_SOURCE_DIR}/src/hooking/cemu_hooks.h
     ${CMAKE_SOURCE_DIR}/src/hooking/camera.cpp
     ${CMAKE_SOURCE_DIR}/src/hooking/game_state.cpp
@@ -50,6 +52,8 @@ target_sources(BetterVR_Layer PUBLIC
     ${CMAKE_SOURCE_DIR}/src/rendering/renderer.h
     ${CMAKE_SOURCE_DIR}/src/rendering/openxr.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/openxr.h
+    ${CMAKE_SOURCE_DIR}/src/rendering/openvr_client.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/openvr_client.h
     ${CMAKE_SOURCE_DIR}/src/rendering/swapchain.cpp
     ${CMAKE_SOURCE_DIR}/src/rendering/swapchain.h
     ${CMAKE_SOURCE_DIR}/src/rendering/texture.cpp

@@ -514,6 +514,12 @@ void RND_Renderer::ImGuiOverlay::Render(long frameIdx, bool renderBackground, bo
         ImGuiMenus::DrawFPSOverlay(renderer);
     }
 
+    // Leg tracking overlay: shows the foot-derived walk vector and gait state.
+    // Only visible in VR (not desktop view) so it does not clutter the recording.
+    if (!isDesktopView) {
+        ImGuiMenus::DrawLegTrackingOverlay();
+    }
+
     DrawHelpMenu();
 }
 

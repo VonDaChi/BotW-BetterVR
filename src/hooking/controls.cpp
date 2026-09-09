@@ -1,6 +1,12 @@
+#include "pch.h"
+
 #include "cemu_hooks.h"
 #include "../instance.h"
 #include "openxr_motion_bridge.h"
+#include "../leg_motion.h"
+
+#include <cstdio>
+#include <ctime>
 
 void spreadWeaponDetectionOverFrames(OpenXR::GameState& gameState) {
     // Spread the weapon detection from link's attachement bones over several frames.
@@ -1075,8 +1081,95 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
     float dt = (float)(inputs.shared.inputTime - prev_sample) / 1000000000.0f;
 
     // fetch game state
-    auto gameState = xr->m_gameState.load(); 
+    auto gameState = xr->m_gameState.load();
     gameState.in_game = inputs.shared.in_game;
+
+    // === Leg tracking data recorder (P2-A) ===
+    // Per-frame CSV capture of foot + headset data for offline gait analysis
+    // (tools/leg_motion_lab.py). Toggle: Controls -> Leg Tracking -> Record Leg Data.
+    // The setting is session-only, so recording never silently resumes on the next launch.
+    // Files go to Cemu's working directory (same place as BetterVR_log.txt), one per session.
+    // Invalid samples (tracker lost, pose invalid) are written as literal "nan" so the time
+    // axis stays complete and Python's float("nan") parses them.
+    static FILE* s_legRecFile = nullptr;
+    static bool s_legRecOpenFailed = false;
+    static uint64_t s_legRecRows = 0;
+    static std::chrono::steady_clock::time_point s_legRecStart{};
+    static char s_legRecPath[96] = "<none>";
+    if (GetSettings().legTrackingRecordData) {
+        if (s_legRecFile == nullptr && !s_legRecOpenFailed && gameState.in_game) {
+            const std::time_t nowT = std::time(nullptr);
+            std::tm tmBuf{};
+            localtime_s(&tmBuf, &nowT);
+            char stamp[24];
+            std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tmBuf);
+            std::snprintf(s_legRecPath, sizeof(s_legRecPath), "BetterVR_legrec_%s.csv", stamp);
+            s_legRecFile = std::fopen(s_legRecPath, "w");
+            if (s_legRecFile != nullptr) {
+                std::fprintf(s_legRecFile, "t,in_game,hmd_x,hmd_y,hmd_z,hmd_yaw,fl_x,fl_y,fl_z,fl_vx,fl_vy,fl_vz,fl_hv,fr_x,fr_y,fr_z,fr_vx,fr_vy,fr_vz,fr_hv\n");
+                s_legRecStart = std::chrono::steady_clock::now();
+                s_legRecRows = 0;
+                Log::print<INFO>("[LegTrack] Recording leg data to \"{}\"", s_legRecPath);
+            }
+            else {
+                s_legRecOpenFailed = true;  // don't retry (and spam) every frame
+                Log::print<WARNING>("[LegTrack] Failed to open \"{}\" for leg data recording", s_legRecPath);
+            }
+        }
+        if (s_legRecFile != nullptr && gameState.in_game) {
+            // Headset pose: position + yaw of the forward vector (0 = -Z / "north").
+            bool hmdValid = false;
+            glm::fvec3 hmdPos(0.0f);
+            float hmdYaw = 0.0f;
+            if (const auto headsetPose = renderer->GetMiddlePose(); headsetPose.has_value()) {
+                hmdPos = glm::fvec3((*headsetPose)[3]);
+                const glm::fquat hmdQuat = glm::quat_cast(glm::fmat3(*headsetPose));
+                const glm::fvec3 hmdFwd = hmdQuat * glm::fvec3(0.0f, 0.0f, -1.0f);
+                hmdYaw = std::atan2(hmdFwd.x, hmdFwd.z);
+                hmdValid = true;
+            }
+
+            const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - s_legRecStart).count();
+            std::fprintf(s_legRecFile, "%.4f,1", t);
+            auto putVal = [](FILE* f, float v, bool valid) {
+                std::fprintf(f, valid ? ",%.4f" : ",nan", v);
+            };
+            putVal(s_legRecFile, hmdPos.x, hmdValid);
+            putVal(s_legRecFile, hmdPos.y, hmdValid);
+            putVal(s_legRecFile, hmdPos.z, hmdValid);
+            putVal(s_legRecFile, hmdYaw, hmdValid);
+            for (OpenXR::EyeSide side : { OpenXR::EyeSide::LEFT, OpenXR::EyeSide::RIGHT }) {
+                const auto& footState = inputs.shared.footPose[side];
+                const auto& footLoc = inputs.shared.footPoseLocation[side];
+                const auto& footVel = inputs.shared.footPoseVelocity[side];
+                const bool footValid = footState.isActive == XR_TRUE
+                    && (footLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+                const float hv = std::sqrt(footVel.linearVelocity.x * footVel.linearVelocity.x
+                    + footVel.linearVelocity.z * footVel.linearVelocity.z);
+                putVal(s_legRecFile, footLoc.pose.position.x, footValid);
+                putVal(s_legRecFile, footLoc.pose.position.y, footValid);
+                putVal(s_legRecFile, footLoc.pose.position.z, footValid);
+                putVal(s_legRecFile, footVel.linearVelocity.x, footValid);
+                putVal(s_legRecFile, footVel.linearVelocity.y, footValid);
+                putVal(s_legRecFile, footVel.linearVelocity.z, footValid);
+                putVal(s_legRecFile, hv, footValid);
+            }
+            std::fprintf(s_legRecFile, "\n");
+            // Periodic flush so a Cemu crash doesn't lose the whole capture.
+            if (++s_legRecRows % 120 == 0) {
+                std::fflush(s_legRecFile);
+            }
+        }
+    }
+    else if (s_legRecFile != nullptr) {
+        std::fclose(s_legRecFile);
+        s_legRecFile = nullptr;
+        Log::print<INFO>("[LegTrack] Recording finished: \"{}\" ({} rows)", s_legRecPath, s_legRecRows);
+    }
+    else {
+        // Toggle cycled off->on->off: allow a fresh open attempt next time.
+        s_legRecOpenFailed = false;
+    }
 
     // buttons
     static uint32_t oldCombinedHold = 0; 
@@ -1112,6 +1205,127 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
             const float newY = leftStickSource.currentState.x * sinA + leftStickSource.currentState.y * cosA;
             leftStickSource.currentState.x = newX;
             leftStickSource.currentState.y = newY;
+        }
+    }
+
+    // === Leg tracking locomotion (P2-C) ===
+    // When enabled, the foot-derived walk_vector overrides the gamepad's left stick
+    // so the player physically walks in place. The analyzer runs in the HMD-local
+    // frame, so its output is directly compatible with leftStickSource (x=right,
+    // y=forward). Disabled by default; toggle in Controls -> Leg Tracking.
+    if (GetSettings().legTrackingEnabled && gameState.in_game) {
+        static LegMotion::LegMotionAnalyzer s_legAnalyzer;
+        static LegMotion::Sample s_legCalibBuf[60];
+        static int s_legCalibCount = 0;
+        static bool s_legCalibrated = false;
+        static bool s_legWarned = false;
+        static LegMotion::Sample s_legPrevSample;
+        static bool s_legPrevValid = false;
+        static float s_legCrouchStartT = -1.0f;
+        static bool s_legCrouchActive = false;
+
+        const auto headsetPose = renderer->GetMiddlePose();
+        if (!headsetPose.has_value()) {
+            if (!s_legWarned) {
+                Log::print<WARNING>("[LegTrack] No headset pose; leg locomotion paused this frame");
+                s_legWarned = true;
+            }
+        }
+        else {
+            const glm::fquat headsetQuat = glm::quat_cast(glm::fmat3(*headsetPose));
+            const glm::fvec3 headsetFwd = headsetQuat * glm::fvec3(0.0f, 0.0f, -1.0f);
+            const float hmdYaw = std::atan2(headsetFwd.x, headsetFwd.z);
+
+            const auto& leftFootLoc = inputs.shared.footPoseLocation[OpenXR::EyeSide::LEFT];
+            const auto& rightFootLoc = inputs.shared.footPoseLocation[OpenXR::EyeSide::RIGHT];
+
+            const bool leftValid = (leftFootLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+            const bool rightValid = (rightFootLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+
+            if (leftValid && rightValid) {
+                // XrTime is in nanoseconds; convert to seconds to match the
+                // thresholds (m/s) in LegMotionAnalyzer.
+                const float t = static_cast<float>(inputs.shared.inputTime) / 1e9f;
+                LegMotion::Sample sample;
+                sample.t = t;
+                sample.hmd_yaw = hmdYaw;
+                sample.left_pos = { leftFootLoc.pose.position.x, leftFootLoc.pose.position.y, leftFootLoc.pose.position.z };
+                sample.right_pos = { rightFootLoc.pose.position.x, rightFootLoc.pose.position.y, rightFootLoc.pose.position.z };
+
+                // Reconstruct velocity from position deltas. The OpenVR runtime
+                // reports zero linear velocity for foot poses, so this is the
+                // only usable velocity source.
+                LegMotion::Sample pair[2] = { s_legPrevValid ? s_legPrevSample : sample, sample };
+                LegMotion::reconstruct_velocities(pair, 2);
+                sample.left_vel = pair[1].left_vel;
+                sample.right_vel = pair[1].right_vel;
+
+                if (!s_legCalibrated) {
+                    if (s_legCalibCount < 60) {
+                        s_legCalibBuf[s_legCalibCount++] = sample;
+                    }
+                    else {
+                        s_legAnalyzer.calibrate(s_legCalibBuf, 60);
+                        s_legCalibrated = true;
+                        Log::print<INFO>("[LegTrack] Calibrated stand height = {:.3f} m", s_legAnalyzer.stand_foot_y());
+                    }
+                }
+
+                if (s_legCalibrated) {
+                    const auto result = s_legAnalyzer.update(sample);
+                    leftStickSource.currentState.x = result.walk_vector[0];
+                    leftStickSource.currentState.y = result.walk_vector[1];
+                    gameState.legMotionStatus.walk_x = result.walk_vector[0];
+                    gameState.legMotionStatus.walk_y = result.walk_vector[1];
+                    gameState.legMotionStatus.is_run = result.is_run;
+                    gameState.legMotionStatus.is_jump = result.is_jump;
+                    gameState.legMotionStatus.calibrated = true;
+                    gameState.legMotionStatus.stand_foot_y = s_legAnalyzer.stand_foot_y();
+                    gameState.legMotionStatus.frames_since_update = 0;
+                    if (result.is_jump) {
+                        newXRBtnHold |= VPAD_BUTTON_X;
+                    }
+
+                    // Crouch: both feet drop below the calibrated stand height by
+                    // more than the threshold and stay there for the dwell window.
+                    // The analyzer's stand_foot_y is the floor reference; a crouch
+                    // lowers the ankle trackers, so lift_both goes negative.
+                    constexpr float kCrouchLiftThreshold = 0.12f; // m below stand height
+                    const float lift_both = std::min(sample.left_pos[1], sample.right_pos[1]) - s_legAnalyzer.stand_foot_y();
+                    const bool crouch_candidate = lift_both < -kCrouchLiftThreshold;
+                    if (crouch_candidate) {
+                        if (s_legCrouchStartT < 0.0f) {
+                            s_legCrouchStartT = sample.t;
+                        }
+                        else if (sample.t - s_legCrouchStartT >= GetSettings().legCrouchDwellMs / 1000.0f) {
+                            if (!s_legCrouchActive) {
+                                newXRBtnHold |= VPAD_BUTTON_STICK_L; // crouch toggle (left stick click in-game)
+                                gameState.legMotionStatus.is_crouch = true;
+                                s_legCrouchActive = true;
+                            }
+                        }
+                    }
+                    else {
+                        if (s_legCrouchActive) {
+                            newXRBtnHold |= VPAD_BUTTON_STICK_L; // release crouch toggle
+                            gameState.legMotionStatus.is_crouch = false;
+                            s_legCrouchActive = false;
+                        }
+                        s_legCrouchStartT = -1.0f;
+                    }
+                }
+                else {
+                    gameState.legMotionStatus.calibrated = false;
+                    gameState.legMotionStatus.frames_since_update = 0;
+                }
+
+                s_legPrevSample = sample;
+                s_legPrevValid = true;
+            }
+            else {
+                s_legPrevValid = false;
+                gameState.legMotionStatus.frames_since_update++;
+            }
         }
     }
 
