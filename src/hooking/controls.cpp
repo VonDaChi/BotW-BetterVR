@@ -1185,6 +1185,15 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
         if (std::abs(v.x) < stickDeadzone) v.x = 0.0f;
         if (std::abs(v.y) < stickDeadzone) v.y = 0.0f;
     };
+
+    // --- Joystick-priority blend (Leg Tracking) ---
+    // Record whether the left stick has raw input BEFORE deadzone zeroing.
+    // This is used later in the leg-tracking block so that explicit stick
+    // input takes precedence over foot-derived locomotion.
+    const bool leftStickHadInput =
+        std::fabs(inputs.inGame.move.x) > stickDeadzone ||
+        std::fabs(inputs.inGame.move.y) > stickDeadzone;
+
     applyDeadzone(leftStickSource.currentState);
     applyDeadzone(rightStickSource.currentState);
 
@@ -1278,17 +1287,12 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
                     const auto result = s_legAnalyzer.update(sample);
 
                     // --- Joystick-priority blend ---
-                    // When the user is also manipulating the controller stick, the stick
-                    // takes precedence and the leg-derived walk vector is ignored. This keeps
-                    // menu navigation and explicit stick control fully functional while leg
-                    // tracking is enabled. Only when the stick is at rest (inside deadzone)
-                    // does the foot motion drive locomotion.
-                    const float stickDeadzone = (float)GetSettings().stickDeadzone;
-                    const bool stickHasInput =
-                        std::fabs(leftStickSource.currentState.x) > stickDeadzone ||
-                        std::fabs(leftStickSource.currentState.y) > stickDeadzone;
-
-                    if (!stickHasInput) {
+                    // leftStickHadInput was recorded BEFORE deadzone zeroing above.
+                    // If the user moved the stick (outside deadzone), we keep the
+                    // stick value — otherwise the foot-derived walk_vector drives
+                    // locomotion. This preserves BetterVR menu navigation and
+                    // explicit stick movement while leg tracking is enabled.
+                    if (!leftStickHadInput) {
                         leftStickSource.currentState.x = result.walk_vector[0];
                         leftStickSource.currentState.y = result.walk_vector[1];
                     }
