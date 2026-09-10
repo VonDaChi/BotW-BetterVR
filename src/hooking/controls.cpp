@@ -1191,8 +1191,8 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
     // This is used later in the leg-tracking block so that explicit stick
     // input takes precedence over foot-derived locomotion.
     const bool leftStickHadInput =
-        std::fabs(inputs.inGame.move.x) > stickDeadzone ||
-        std::fabs(inputs.inGame.move.y) > stickDeadzone;
+        std::fabs(inputs.inGame.move.currentState.x) > stickDeadzone ||
+        std::fabs(inputs.inGame.move.currentState.y) > stickDeadzone;
 
     applyDeadzone(leftStickSource.currentState);
     applyDeadzone(rightStickSource.currentState);
