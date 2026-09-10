@@ -1209,10 +1209,13 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
     }
 
     // === Leg tracking locomotion (P2-C) ===
-    // When enabled, the foot-derived walk_vector overrides the gamepad's left stick
-    // so the player physically walks in place. The analyzer runs in the HMD-local
-    // frame, so its output is directly compatible with leftStickSource (x=right,
-    // y=forward). Disabled by default; toggle in Controls -> Leg Tracking.
+    // When enabled, the foot-derived walk_vector drives the left stick, but
+    // only when the controller stick is at rest (inside the deadzone). If the
+    // user is actively pushing the stick, the stick takes precedence so that
+    // menu navigation and explicit movement still work. The analyzer runs in
+    // the HMD-local frame, so its output is directly compatible with
+    // leftStickSource (x=right, y=forward). Disabled by default; toggle in
+    // Controls -> Leg Tracking.
     if (GetSettings().legTrackingEnabled && gameState.in_game) {
         static LegMotion::LegMotionAnalyzer s_legAnalyzer;
         static LegMotion::Sample s_legCalibBuf[60];
@@ -1273,8 +1276,23 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
 
                 if (s_legCalibrated) {
                     const auto result = s_legAnalyzer.update(sample);
-                    leftStickSource.currentState.x = result.walk_vector[0];
-                    leftStickSource.currentState.y = result.walk_vector[1];
+
+                    // --- Joystick-priority blend ---
+                    // When the user is also manipulating the controller stick, the stick
+                    // takes precedence and the leg-derived walk vector is ignored. This keeps
+                    // menu navigation and explicit stick control fully functional while leg
+                    // tracking is enabled. Only when the stick is at rest (inside deadzone)
+                    // does the foot motion drive locomotion.
+                    const float stickDeadzone = (float)GetSettings().stickDeadzone;
+                    const bool stickHasInput =
+                        std::fabs(leftStickSource.currentState.x) > stickDeadzone ||
+                        std::fabs(leftStickSource.currentState.y) > stickDeadzone;
+
+                    if (!stickHasInput) {
+                        leftStickSource.currentState.x = result.walk_vector[0];
+                        leftStickSource.currentState.y = result.walk_vector[1];
+                    }
+                    // else: keep the stick value as-is (already in leftStickSource.currentState)
                     gameState.legMotionStatus.walk_x = result.walk_vector[0];
                     gameState.legMotionStatus.walk_y = result.walk_vector[1];
                     gameState.legMotionStatus.is_run = result.is_run;
