@@ -1187,12 +1187,12 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
     };
 
     // --- Joystick-priority blend (Leg Tracking) ---
-    // Record whether the left stick has raw input BEFORE deadzone zeroing.
-    // This is used later in the leg-tracking block so that explicit stick
-    // input takes precedence over foot-derived locomotion.
+    // Record whether the left stick has raw input BEFORE deadzone zeroing
+    // (applyDeadzone below zeroes it in place), so explicit stick input
+    // takes precedence over foot-derived locomotion in the leg block.
     const bool leftStickHadInput =
-        std::fabs(inputs.inGame.move.currentState.x) > stickDeadzone ||
-        std::fabs(inputs.inGame.move.currentState.y) > stickDeadzone;
+        std::fabs(leftStickSource.currentState.x) > stickDeadzone ||
+        std::fabs(leftStickSource.currentState.y) > stickDeadzone;
 
     applyDeadzone(leftStickSource.currentState);
     applyDeadzone(rightStickSource.currentState);
@@ -1225,7 +1225,14 @@ void CemuHooks::hook_InjectXRInput(PPCInterpreter_t* hCPU) {
     // the HMD-local frame, so its output is directly compatible with
     // leftStickSource (x=right, y=forward). Disabled by default; toggle in
     // Controls -> Leg Tracking.
-    if (GetSettings().legTrackingEnabled && gameState.in_game) {
+    // Paused while the BetterVR menu is open: the mod menu does not clear
+    // shared.in_game (that flag only tracks the game's own menus), and the
+    // menu navigation reads the same inputs.inGame.move action state, so a
+    // foot-derived walk_vector would pollute it. Game input is suppressed
+    // while the menu is open anyway, so locomotion has no purpose there.
+    // Static analyzer state (calibration, previous sample) survives the pause.
+    if (GetSettings().legTrackingEnabled && gameState.in_game
+        && !xr->m_isMenuOpen.load(std::memory_order_relaxed)) {
         static LegMotion::LegMotionAnalyzer s_legAnalyzer;
         static LegMotion::Sample s_legCalibBuf[60];
         static int s_legCalibCount = 0;
