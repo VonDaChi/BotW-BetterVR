@@ -959,10 +959,15 @@ namespace ImGuiMenus {
         ImGui::SetNextWindowPos(ImVec2(windowSizeX - pad - width, windowSizeY - pad - height),
             ImGuiCond_Always, ImVec2(0.0f, 1.0f));
 
+        // NoNav/NoInputs/NoFocusOnAppearing keep this overlay inert in ImGui's
+        // gamepad navigation, mirroring DrawFPSOverlay. Without them the window
+        // steals nav focus when it appears (e.g. the moment Leg Locomotion is
+        // enabled in this menu), which dead-locks all menu navigation.
         if ( ImGui::Begin("Leg Tracking", nullptr,
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-           5)) {
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoNav |
+            ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing)) {
             if (!status.calibrated) {
                 ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Calibrating stand height...");
             }
