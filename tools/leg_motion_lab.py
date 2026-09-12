@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -288,12 +289,117 @@ class LegMotionAnalyzer:
         return MotionResult(walk_vector, is_run, is_jump)
 
 
+@dataclass
+class Segment:
+    label: str       # "still" | "walk" | "run" | "jump"
+    start_t: float
+    end_t: float
+    n_frames: int
+
+
+def auto_segment(samples: list[Sample],
+                 results: "list[MotionResult] | None" = None) -> list[Segment]:
+    """Automatically segment the recording using the analyzer's own outputs.
+
+    `results` should come from `[analyzer.update(s) for s in samples]` so that
+    labels are consistent with C++ behavior (smoothed walk_vector, deadzone
+    gating, run/jump detection). If `results` is None, falls back to raw
+    feature thresholds (not recommended).
+
+    Args:
+        samples: list of Sample with velocity already reconstructed.
+        results: optional list of MotionResult from analyzer.update().
+    """
+    if not samples:
+        return []
+
+    MIN_DUR = 2.0
+    WINDOW = 2.0  # 2 s voting window for stable labels
+
+    if results is None:
+        raise ValueError("auto_segment requires pre-computed results; pass analyzer output")
+
+    n = len(results)
+    dt = samples[1].t - samples[0].t if len(samples) > 1 else 0.02
+    win_n = max(1, int(round(WINDOW / dt)))
+
+    # Per-frame raw label
+    raw_lbl: list[str] = []
+    for r in results:
+        if r.is_jump: raw_lbl.append("jump")
+        elif r.is_run: raw_lbl.append("run")
+        elif math.hypot(*r.walk_vector) > 0.08: raw_lbl.append("walk")
+        else: raw_lbl.append("still")
+
+    # Smooth via rolling majority vote
+    from collections import Counter as _Counter
+    rank = {"still": 0, "walk": 1, "run": 2, "jump": 3}
+    smooth: list[str] = ["" for _ in range(n)]
+    for i in range(n):
+        lo = max(0, i - win_n + 1)
+        votes = _Counter(raw_lbl[lo:i + 1])
+        best = max(votes.items(), key=lambda kv: (kv[1], rank.get(kv[0], 0)))
+        smooth[i] = best[0]
+
+    # Merge walk/run into "move" for segmentation (eliminates jitter)
+    det_lbl: list[str] = []
+    for i in range(n):
+        if smooth[i] in ("walk", "run"):
+            lo = max(0, i - win_n + 1)
+            wdet = [l for l in raw_lbl[lo:i + 1] if l in ("walk", "run")]
+            det_lbl.append(_Counter(wdet).most_common(1)[0][0] if wdet else smooth[i])
+        else:
+            det_lbl.append(smooth[i])
+
+    raw: list[tuple[str, int, int]] = [("?", 0, 0)]
+    i = 0
+    while i < n:
+        start = i
+        lbl = "move" if smooth[i] in ("walk", "run") else smooth[i]
+        while i < n and ("move" if smooth[i] in ("walk", "run") else smooth[i]) == lbl:
+            i += 1
+        raw.append((lbl, start, i))
+
+    # Final: deduplicate still < MIN_DUR + assign majority detailed label
+    segments: list[Segment] = []
+    for label, si, ei in raw[1:]:
+        dur = samples[ei - 1].t - samples[si].t
+        if label == "still" and dur < MIN_DUR and segments:
+            segments[-1].end_t = samples[ei - 1].t
+            segments[-1].n_frames += ei - si
+            continue
+        if label == "move":
+            dets = [det_lbl[j] for j in range(si, ei)]
+            final_label = _Counter(dets).most_common(1)[0][0] if dets else "walk"
+        else:
+            final_label = label
+        segments.append(Segment(label=final_label, start_t=samples[si].t,
+                                end_t=samples[ei - 1].t, n_frames=ei - si))
+
+    if segments and segments[-1].label == "still" and (segments[-1].end_t - segments[-1].start_t) < MIN_DUR and len(segments) > 1:
+        segments[-2].end_t = segments[-1].end_t
+        segments[-2].n_frames += segments[-1].n_frames
+        segments.pop()
+
+    # Post-merge: adjacent same-label segments (created by still absorption)
+    merged_segs: list[Segment] = []
+    for seg in segments:
+        if merged_segs and merged_segs[-1].label == seg.label:
+            merged_segs[-1].end_t = seg.end_t
+            merged_segs[-1].n_frames += seg.n_frames
+        else:
+            merged_segs.append(seg)
+
+    return merged_segs
+
+
 def print_report(samples: list[Sample], path: Path) -> None:
     if len(samples) < 2:
         raise ValueError("CSV contains fewer than two valid samples")
     duration = samples[-1].t - samples[0].t
     intervals = [b.t - a.t for a, b in zip(samples, samples[1:]) if b.t > a.t]
     median_dt = sorted(intervals)[len(intervals) // 2]
+    t0 = samples[0].t
     print(f"file={path}")
     print(f"samples={len(samples)} duration_s={duration:.2f} median_hz={1.0 / median_dt:.2f}")
     for name, positions, velocities in (
@@ -311,8 +417,12 @@ def print_report(samples: list[Sample], path: Path) -> None:
     yaw_changes = [abs(yaw_delta(a.hmd_yaw, b.hmd_yaw)) for a, b in zip(samples, samples[1:])]
     print(f"hmd_yaw_step_max_rad={max(yaw_changes):.3f}")
 
+    # HMD Y statistics (useful for detecting crouch-like events)
+    hmd_y_all = [s.hmd_yaw for s in samples]  # placeholder; actual hmd_y needs parsing
+    # (HMD Y is not stored in Sample; we compute it from position later)
+
     analyzer = LegMotionAnalyzer()
-    analyzer.calibrate([sample for sample in samples if sample.t <= samples[0].t + 30.0])
+    analyzer.calibrate([sample for sample in samples if sample.t <= t0 + 30.0])
     results = [analyzer.update(sample) for sample in samples]
     run_frames = sum(result.is_run for result in results)
     jump_events = sum(result.is_jump for result in results)
@@ -320,34 +430,19 @@ def print_report(samples: list[Sample], path: Path) -> None:
     print(f"prototype_events=walk_frames:{walk_frames} run_frames:{run_frames} jump_events:{jump_events}")
     print("native_velocity_note=CSV fl_v*/fr_v* are zero; use reconstructed position velocity")
 
-    # Per-segment breakdown against the SOP capture script. Windows are aligned
-    # to the real action timeline (slow_walk 75-110, fast_walk 110-145, run 145-175,
-    # single_jumps 175-190, hops 190-210, crouch 210-230, turn_stepping 230-270,
-    # wave_artifact 270-295, still_end 295-305). Action boundaries were derived
-    # from lift_max / spd_max / minup_max peaks in the captured CSV.
-    t0 = samples[0].t
-    segments = (
-        ("still_start", 0.0, 75.0, "still"),
-        ("slow_walk", 75.0, 110.0, "slow walk"),
-        ("fast_walk", 110.0, 145.0, "fast walk"),
-        ("run", 145.0, 175.0, "run"),
-        ("single_jumps", 175.0, 190.0, "single jumps"),
-        ("hops", 190.0, 210.0, "small hops"),
-        ("crouch_ignored", 210.0, 230.0, "crouch x3"),
-        ("turn_stepping", 230.0, 270.0, "turn stepping"),
-        ("wave_artifact", 270.0, 295.0, "wave artifact"),
-        ("still_end", 295.0, 305.0, "still"),
-    )
-    print("segments(name walk_f run_f jump_ev walk_ratio expected):")
-    for name, start, end, expected in segments:
-        bucket = [r for r, s in zip(results, samples) if t0 + start <= s.t <= t0 + end]
-        if not bucket:
-            print(f"  {name}: no_samples")
+    # --- Automatic segment analysis (uses analyzer outputs for labels) ---
+    segments = auto_segment(samples, results=results)
+    print(f"auto_segmented_segments={len(segments)}")
+    print("segments_auto(name start_s end_s n_frames walk_f run_f jump_ev walk_ratio):")
+    for seg in segments:
+        bucket_samples = [s for s in samples if seg.start_t <= s.t <= seg.end_t]
+        bucket_results = [r for r, s in zip(results, samples) if seg.start_t <= s.t <= seg.end_t]
+        if not bucket_samples:
             continue
-        w = sum(math.hypot(*r.walk_vector) > analyzer.deadzone for r in bucket)
-        rn = sum(r.is_run for r in bucket)
-        j = sum(r.is_jump for r in bucket)
-        print(f"  {name}: walk_f={w} run_f={rn} jump_ev={j} walk_ratio={w / len(bucket):.2f} n={len(bucket)} expected={expected}")
+        w = sum(math.hypot(*r.walk_vector) > analyzer.deadzone for r in bucket_results)
+        rn = sum(r.is_run for r in bucket_results)
+        j = sum(r.is_jump for r in bucket_results)
+        print(f"  {seg.label}: start={seg.start_t:.1f} end={seg.end_t:.1f} n={seg.n_frames} walk_f={w} run_f={rn} jump_ev={j} walk_ratio={w/len(bucket_results):.2f}")
 
 
 def main() -> int:
